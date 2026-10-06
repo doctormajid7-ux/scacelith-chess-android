@@ -12,6 +12,7 @@
 #include "core/embedded.h"
 #include "i18n/i18n.h"
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <set>

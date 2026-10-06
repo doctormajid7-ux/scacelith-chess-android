@@ -83,6 +83,22 @@ bool Ambience::popCreak(Event& e) {
     return true;
 }
 
+int Ambience::activeBirds() const {
+    int n = 0;
+    for (const Bird& b : birds_) n += b.active ? 1 : 0;
+    return n;
+}
+
+int Ambience::birdWindow(int slot) const {
+    return slot >= 0 && slot < kBirds && birds_[slot].active ? birds_[slot].window : -1;
+}
+
+bool Ambience::startBirdForTest(int windowHint, int species) {
+    const int before = activeBirds();
+    startPhrase(windowHint, species);   // picks the first free slot, or returns when there is none
+    return activeBirds() > before;
+}
+
 void Ambience::startPhrase(int windowHint, int species) {
     int slot = -1;
     for (int i = 0; i < kBirds; ++i)

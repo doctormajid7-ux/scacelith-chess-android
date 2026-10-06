@@ -54,6 +54,8 @@ options.vsync = Vertical sync
 options.vsync.help = Synchronise frames with the display to avoid tearing.
 options.render_scale = Render scale
 options.render_scale.help = Internal resolution of the 3D image. Lower is faster, higher is sharper.
+options.text_scale = Text size
+options.text_scale.help = The size of the interface text: menus, options, the coach's subtitles.
 
 options.quality = Quality
 options.quality.low = Low
@@ -65,6 +67,17 @@ options.motion_blur = Motion blur
 options.motion_blur.help = Blurs the fast movements of the camera and the arms, as a film camera does.
 options.depth_of_field = Depth of field
 options.depth_of_field.help = Softens what lies well in front of or behind what you look at, as a camera lens does.
+options.simple_renderer = Simple renderer
+options.simple_renderer.help = A lighter renderer for weaker graphics chips (phones): plain material colours, sun shadow and simple lighting, without reflections or post-processing effects.
+options.simple_materials = Material textures
+options.simple_materials.help = How the materials are drawn by the simple renderer. Plain: one colour per material (fastest). Baked: the real marble, wood, stone and cloth patterns, computed once at load into textures (fast). Full: computed for every pixel (very demanding on a phone).
+options.simple_materials.plain = Plain
+options.simple_materials.light = Baked
+options.simple_materials.full = Full
+options.simple_indirect = Indirect lighting
+options.simple_indirect.help = The light the sun bounces around the hall, and its soft reflections (computed once, at load).
+options.simple_msaa = Anti-aliasing (MSAA)
+options.simple_msaa.help = Smooths the jagged edges of objects (4x multisampling; nearly free on a phone graphics chip).
 options.brightness = Brightness
 options.brightness.neutral = Neutral
 options.brightness.value = {0} EV
@@ -98,6 +111,10 @@ options.handover.flight = Flight, {0} s
 options.handover.help = Two players on one PC: how the view goes from one player's eyes to the other's after each move. The instant cut avoids the camera motion.
 options.game_cursor = Game pointer
 options.game_cursor.help = At the table, the game draws its own pointer, which shows what a click will do. Off: the usual system arrow.
+options.touch_mode = Touch control
+options.touch_mode.help = Touchpad: the finger moves an arrow, a tap clicks where the arrow is, a still long press holds the button. Direct: the finger is the pointer, tap a piece then its square (or drag it).
+options.touch_mode.touchpad = Touchpad (arrow)
+options.touch_mode.direct = Direct (finger)
 
 # ---- Player profile (Options > Player) ---------------------------------------------------------
 player.name = Name

@@ -13,9 +13,19 @@ using namespace m;
 
 namespace {
 
+#ifdef __ANDROID__
+// Phones: ~4x fewer triangles. The 32 pieces are drawn every frame in the main pass and in each
+// shadow cascade, and at full detail (~2 M triangles) they alone cost a phone GPU more time than
+// all the pixels of the frame; at a phone's viewing size the coarser facets do not show.
+constexpr int LATHE_SEGMENTS = 48;
+constexpr float MAX_SEG = 1.2f;   // profile resampling (mm)
+constexpr float SDF_CELL_SCALE = 1.7f;   // grid spacing of the SDF parts (heads, crowns, cross)
+#else
 constexpr int LATHE_SEGMENTS = 96;
-constexpr float FILLET = 0.28f;   // default edge rounding (mm)
 constexpr float MAX_SEG = 0.6f;   // profile resampling (mm)
+constexpr float SDF_CELL_SCALE = 1.0f;
+#endif
+constexpr float FILLET = 0.28f;   // default edge rounding (mm)
 
 float heightMm(int type) { return layout::PIECE_HEIGHT[type] * 1000.0f; }
 float radiusMm(int type) { return layout::PIECE_BASE_RADIUS[type] * 1000.0f; }
@@ -121,7 +131,7 @@ double nowSec() {
 
 MeshData meshField(const sdf::Field& f, const AABB& box, float cell, float lipschitz, float H, const char* what) {
     sdf::MeshOptions o;
-    o.cell = cell;
+    o.cell = cell * SDF_CELL_SCALE;
     o.lipschitz = lipschitz;
     sdf::MeshStats st;
     double t0 = nowSec();

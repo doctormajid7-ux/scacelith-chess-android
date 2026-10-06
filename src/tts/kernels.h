@@ -77,6 +77,9 @@ const Table* tableAvx2();
 const Table* tableAvxVnni();
 const Table* tableAvx512();
 
+// The portable table (kernels_portable.cpp: plain C++, vectorized by the compiler): the kScalar
+// table of the non-x86 builds, and on x86 a table the tests compare with the others.
+const Table* tablePortable();
 // Whether this CPU (and OS) runs a level.
 bool cpuRuns(int level);
 // The table in use: the best level the CPU runs, capped by setArchCap(). Thread-safe after the

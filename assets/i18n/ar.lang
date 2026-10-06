@@ -49,6 +49,8 @@ options.vsync = المزامنة العمودية
 options.vsync.help = يزامن الإطارات مع الشاشة لتجنّب تمزّق الصورة.
 options.render_scale = مقياس العرض
 options.render_scale.help = الدقة الداخلية للصورة ثلاثية الأبعاد. الأدنى أسرع، والأعلى أوضح.
+options.text_scale = حجم النص
+options.text_scale.help = حجم نصوص الواجهة: القوائم والخيارات وترجمة المدرّب.
 
 options.quality = الجودة
 options.quality.low = منخفضة
@@ -60,6 +62,17 @@ options.motion_blur = ضبابية الحركة
 options.motion_blur.help = يطمس الحركات السريعة للكاميرا والذراعين، كما تفعل كاميرا السينما.
 options.depth_of_field = عمق الميدان
 options.depth_of_field.help = يليّن ما يقع بعيدًا أمام ما تنظر إليه أو خلفه، كما تفعل عدسة الكاميرا.
+options.simple_renderer = عرض مبسّط
+options.simple_renderer.help = عرض أخف لشرائح الرسوميات المتواضعة (الهواتف): ألوان مواد بسيطة وظل الشمس وإضاءة بسيطة، دون انعكاسات أو مؤثرات ما بعد المعالجة.
+options.simple_materials = خامات المواد
+options.simple_materials.help = كيف يرسم العرض المبسّط المواد. بسيطة: لون واحد لكل مادة (الأسرع). محسوبة مسبقًا: نقوش الرخام والخشب والحجر والقماش الحقيقية، تُحسب مرة واحدة عند التحميل في خامات (سريع). كاملة: تُحسب لكل بكسل (ثقيلة جدًا على الهاتف).
+options.simple_materials.plain = بسيطة
+options.simple_materials.light = محسوبة مسبقًا
+options.simple_materials.full = كاملة
+options.simple_indirect = الإضاءة غير المباشرة
+options.simple_indirect.help = الضوء الذي تعكسه الشمس في أرجاء القاعة وانعكاساته الناعمة (تُحسب مرة واحدة عند التحميل).
+options.simple_msaa = تنعيم الحواف (MSAA)
+options.simple_msaa.help = ينعّم الحواف المسننة للأجسام (تعدد العينات 4x؛ شبه مجاني على شريحة رسوميات الهاتف).
 options.brightness = السطوع
 options.brightness.neutral = محايد
 options.brightness.value = {0} EV
@@ -93,6 +106,10 @@ options.handover.flight = تحليق، {0} ث
 options.handover.help = لاعبان على حاسوب واحد: كيف ينتقل المشهد من عيني لاعب إلى عيني الآخر بعد كل نقلة. الانتقال الفوري يتجنّب حركة الكاميرا.
 options.game_cursor = مؤشر اللعبة
 options.game_cursor.help = على الطاولة، ترسم اللعبة مؤشرها الخاص الذي يبيّن ما ستفعله النقرة. عند الإيقاف: سهم النظام المعتاد.
+options.touch_mode = التحكم باللمس
+options.touch_mode.help = لوحة اللمس: الإصبع يحرك سهمًا، والنقرة تضغط حيث السهم، والضغط المطوّل الثابت يُبقي الزر مضغوطًا. مباشر: الإصبع هو المؤشر، المس قطعة ثم مربعها (أو اسحبها).
+options.touch_mode.touchpad = لوحة لمس (سهم)
+options.touch_mode.direct = مباشر (إصبع)
 
 # ---- Player profile (Options > Player) ---------------------------------------------------------
 player.name = الاسم

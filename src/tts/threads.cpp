@@ -1,6 +1,8 @@
 #include "threads.h"
 #include <algorithm>
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
 #include <xmmintrin.h>
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -11,6 +13,43 @@
 #endif
 
 namespace tts {
+namespace {
+
+// Flush-to-zero and denormals-are-zero of the current thread: MXCSR bits 15 and 6 on x86, FPCR
+// bits 24 and 19 on aarch64 (the same two behaviours under a different name). The audio and TTS
+// tests assert that no denormal reaches a buffer, and a denormal costs hundreds of cycles per
+// operation on either architecture.
+uint64_t readFpFlags() {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
+    return _mm_getcsr();
+#elif defined(__aarch64__)
+    uint64_t v;
+    __asm__ __volatile__("mrs %0, fpcr" : "=r"(v));
+    return v;
+#else
+    return 0;
+#endif
+}
+void writeFpFlags(uint64_t v) {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
+    _mm_setcsr(unsigned(v));
+#elif defined(__aarch64__)
+    __asm__ __volatile__("msr fpcr, %0" ::"r"(v));
+#else
+    (void)v;
+#endif
+}
+uint64_t fpFlushBits() {
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
+    return 0x8040ull;   // FZ (bit 15) | DAZ (bit 6)
+#elif defined(__aarch64__)
+    return (1ull << 24) | (1ull << 19);   // FZ | FZ16
+#else
+    return 0;
+#endif
+}
+
+}  // namespace
 
 void lowerThreadPriority() {
 #ifdef _WIN32
@@ -24,8 +63,8 @@ void lowerThreadPriority() {
 #endif
 }
 
-FpGuard::FpGuard() : csr(_mm_getcsr()) { _mm_setcsr(csr | 0x8040u); }
-FpGuard::~FpGuard() { _mm_setcsr(csr); }
+FpGuard::FpGuard() : csr(readFpFlags()) { writeFpFlags(csr | fpFlushBits()); }
+FpGuard::~FpGuard() { writeFpFlags(csr); }
 
 ThreadPool::ThreadPool(int threads) {
     threads = std::clamp(threads, 1, 16);
@@ -47,7 +86,7 @@ ThreadPool::~ThreadPool() {
 
 void ThreadPool::workerMain() {
     lowerThreadPriority();
-    _mm_setcsr(_mm_getcsr() | 0x8040u);
+    writeFpFlags(readFpFlags() | fpFlushBits());
     uint64_t seen = 0;
     for (;;) {
         const std::function<void(int)>* fn;

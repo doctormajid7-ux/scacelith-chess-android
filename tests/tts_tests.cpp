@@ -295,6 +295,15 @@ std::vector<int> levelsRun() {
     return v;
 }
 
+// The tables the kernel tests check: every level this CPU runs, then the portable table (the one
+// of the arm64 builds, kernels_portable.cpp), level -1 here.
+std::vector<int> tablesToCheck() {
+    std::vector<int> v = levelsRun();
+    v.push_back(-1);
+    return v;
+}
+const tts::kern::Table* tableToCheck(int level) { return level < 0 ? tts::kern::tablePortable() : tts::kern::tableFor(level); }
+
 // ------------------------------------------------------------------------------------------------
 // Protobuf writer for the hand-made model
 // ------------------------------------------------------------------------------------------------
@@ -1403,15 +1412,15 @@ std::vector<float> sgemmRef(const tts::kern::Table& k, int M, int N, int K, cons
 }  // namespace
 
 TEST(tts_kernels_all_levels) {
-    std::vector<int> levels = levelsRun();
+    std::vector<int> levels = tablesToCheck();
     CHECK(!levels.empty());
     std::string names;
-    for (int l : levels) names += std::string(" ") + tts::kern::levelName(l);
+    for (int l : levels) names += std::string(" ") + tableToCheck(l)->name;
     std::fprintf(stderr, "  levels run by this CPU:%s (active: %s)\n", names.c_str(), tts::activeArch());
     std::mt19937 rng(11);
     tts::ThreadPool pool(3);
     for (int level : levels) {
-        const tts::kern::Table& k = *tts::kern::tableFor(level);
+        const tts::kern::Table& k = *tableToCheck(level);
         // f32 GEMM, float and int8-weight A, odd sizes, K across the blocking depth, column blocks.
         const int shapes[][3] = {{1, 1, 1}, {7, 13, 5}, {37, 61, 70}, {6, 16, 600}, {50, 3, 1100}, {13, 100, 33}};
         for (auto& sh : shapes) {
@@ -1971,9 +1980,9 @@ TEST(tts_stage_every_level) {
     StageFixture f;
     if (std::string missing = f.init(); !missing.empty()) SKIP(missing);
     const tts::Engine& e = *f.s->engine();
-    for (int level : levelsRun()) {
+    for (int level : tablesToCheck()) {
         tts::ExecContext ctx;
-        ctx.k = tts::kern::tableFor(level);
+        ctx.k = tableToCheck(level);
         Diff d = diff(veStep(f, ctx, 0), f.ref["latent1"]);
         std::string err;
         Tensor wav;

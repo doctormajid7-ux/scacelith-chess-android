@@ -18,8 +18,9 @@ namespace tts {
 void lowerThreadPriority();
 
 // Flush-to-zero / denormals-are-zero for the current thread, restored on destruction.
+// The saved value is the x86 MXCSR on x86 (32 bits used), the FPCR on aarch64.
 struct FpGuard {
-    unsigned csr;
+    uint64_t csr;
     FpGuard();
     ~FpGuard();
     FpGuard(const FpGuard&) = delete;

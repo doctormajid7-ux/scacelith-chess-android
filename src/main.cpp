@@ -171,8 +171,10 @@ static int runApp(std::vector<std::string> args) {
         running = scene->update(ctx, dt);
         bool visible = plat::width() > 0 && plat::height() > 0;  // 0 x 0 while minimised
         if (visible) {
+            const double drawStart = plat::time();
             scene->render(ctx, dt);
             scene->renderOverlay(ctx, dt);
+            ctx.drawMs = (plat::time() - drawStart) * 1e3;
         }
         ++frame;
         bool f12 = in.keyPressed[plat::KEY_F12] && !f12Held && visible;
@@ -191,17 +193,49 @@ static int runApp(std::vector<std::string> args) {
             }
             if (ctx.screenshotMode) running = false;
         }
-        if (visible) plat::swapBuffers();
-        else plat::sleepMs(10);  // nothing to present, and no vsync to pace the loop
+        if (visible) {
+            const double swapStart = plat::time();
+            plat::swapBuffers();
+            ctx.swapMs = (plat::time() - swapStart) * 1e3;
+        } else {
+            plat::sleepMs(10);  // nothing to present, and no vsync to pace the loop
+        }
+
+#ifdef __ANDROID__
+        // The frame's budget in the log file (one line every 30 frames, and every slow one): the
+        // hand-off order above (pump → update → draw → swap) plus the stage whose time is large
+        // says where a slow frame spends its time, and swap's own time is the GPU/vsync wait a
+        // frame cannot go under.
+        const double frameEnd = plat::time();
+        const double frameMs = (frameEnd - last) * 1e3;
+        if (frame % 30 == 0 || frameMs > 100.0)
+            LOGI("frame %d visible=%d dt=%.1fms draw=%.1fms swap=%.1fms", frame, int(visible), frameMs,
+                 ctx.drawMs, ctx.swapMs);
+        ctx.drawMs = ctx.swapMs = 0.0;
+#endif
     }
+    const double quitStart = plat::time();
     scene->shutdown(ctx);
+    LOGI("quit: scene shut down in %.0f ms", (plat::time() - quitStart) * 1e3);
     scene.reset();
     renderer.shutdown();
     settings.save();
+    LOGI("quit: done in %.0f ms", (plat::time() - quitStart) * 1e3);
     plat::shutdown();
     logx::shutdown();
     return shotFailed ? 2 : 0;  // a --shot run without its image fails (tools/shot.sh)
 }
+
+#ifdef __ANDROID__
+// Android has no main(): the app's Java side hands the window and the events to
+// src/platform/platform_android.cpp, which runs the loop above on a thread of its own and calls
+// this entry point. The command line is empty there.
+extern "C" int scacelith_run_app(int argc, const char** argv) {
+    std::vector<std::string> args;
+    for (int i = 0; i < argc; ++i) args.emplace_back(argv[i]);
+    return runApp(args);
+}
+#endif
 
 #ifdef _WIN32
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) { return runApp(plat::commandLine()); }

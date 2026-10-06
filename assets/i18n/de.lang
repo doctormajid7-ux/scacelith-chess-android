@@ -46,6 +46,8 @@ options.vsync = V-Sync
 options.vsync.help = Synchronisiert die Bilder mit dem Monitor, um Bildrisse zu vermeiden.
 options.render_scale = Renderskalierung
 options.render_scale.help = Interne Auflösung des 3D-Bildes. Niedriger ist schneller, höher ist schärfer.
+options.text_scale = Textgröße
+options.text_scale.help = Die Größe der Texte der Oberfläche: Menüs, Optionen, die Untertitel des Coachs.
 
 options.quality = Qualität
 options.quality.low = Niedrig
@@ -57,6 +59,17 @@ options.motion_blur = Bewegungsunschärfe
 options.motion_blur.help = Verwischt schnelle Bewegungen der Kamera und der Arme, wie eine Filmkamera.
 options.depth_of_field = Tiefenschärfe
 options.depth_of_field.help = Zeichnet weich, was weit vor oder hinter dem liegt, was Sie ansehen, wie ein Kameraobjektiv.
+options.simple_renderer = Vereinfachte Darstellung
+options.simple_renderer.help = Eine leichtere Darstellung für schwächere Grafikchips (Telefone): einfache Materialfarben, Sonnenschatten und schlichte Beleuchtung, ohne Spiegelungen und Nachbearbeitungseffekte.
+options.simple_materials = Materialtexturen
+options.simple_materials.help = Wie die vereinfachte Darstellung die Materialien zeichnet. Einfarbig: eine Farbe je Material (am schnellsten). Vorberechnet: die echten Muster von Marmor, Holz, Stein und Stoff, einmal beim Laden in Texturen berechnet (schnell). Voll: für jedes Pixel berechnet (sehr anspruchsvoll auf einem Telefon).
+options.simple_materials.plain = Einfarbig
+options.simple_materials.light = Vorberechnet
+options.simple_materials.full = Voll
+options.simple_indirect = Indirekte Beleuchtung
+options.simple_indirect.help = Das Licht, das die Sonne im ganzen Saal zurückwirft, und seine weichen Spiegelungen (einmal beim Laden berechnet).
+options.simple_msaa = Kantenglättung (MSAA)
+options.simple_msaa.help = Glättet die gezackten Kanten der Objekte (4x Multisampling; auf einem Telefon-Grafikchip fast kostenlos).
 options.brightness = Helligkeit
 options.brightness.neutral = Neutral
 options.brightness.value = {0} EV
@@ -90,6 +103,10 @@ options.handover.flight = Kameraflug, {0} s
 options.handover.help = Zwei Spieler an einem PC: wie die Sicht nach jedem Zug von den Augen des einen Spielers zu denen des anderen wechselt. Der harte Schnitt vermeidet die Kamerabewegung.
 options.game_cursor = Spielzeiger
 options.game_cursor.help = Am Tisch zeichnet das Spiel einen eigenen Zeiger, der zeigt, was ein Klick bewirkt. Aus: der gewohnte Systempfeil.
+options.touch_mode = Touch-Steuerung
+options.touch_mode.help = Touchpad: Der Finger bewegt einen Pfeil, ein Tippen klickt an der Pfeilposition, ein ruhiges langes Drücken hält die Taste. Direkt: Der Finger ist der Zeiger, tippen Sie eine Figur und dann ihr Feld an (oder ziehen Sie sie).
+options.touch_mode.touchpad = Touchpad (Pfeil)
+options.touch_mode.direct = Direkt (Finger)
 
 # ---- Player profile (Options > Player) ---------------------------------------------------------
 player.name = Name

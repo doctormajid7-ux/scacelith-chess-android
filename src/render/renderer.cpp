@@ -1,4 +1,8 @@
 #include "renderer.h"
+#include "../core/log.h"
+#include <cstdlib>
+#include <chrono>
+#include <cstdio>
 #include "lighting/atmosphere.h"
 #include "lighting/lighting_data.h"
 #include "lighting/planar.h"
@@ -45,7 +49,14 @@ void RenderSettings::applyPreset(Quality q) {
         case Quality::Low:
             shadowMapSize = 2048; planarReflections = false; ssao = true; ssr = false; volumetrics = false;
             taa = true; motionBlur = false; dof = false; bloom = true; tessellation = false;
-            shadowCascades = 2; probeResolution = 64; probeBounces = 1; break;
+            shadowCascades = 2; probeResolution = 64; probeBounces = 1;
+#ifdef SCACELITH_GLES
+            // Mobile Low: the effects a phone screen barely shows go. No ambient occlusion, no
+            // light probes (the hemisphere ambient replaces them, and the multi-second bake at
+            // start goes too), one 1024^2 shadow cascade pair with hard-ish PCF (lighting.glsl).
+            ssao = false; lightProbes = false; shadowMapSize = 1024; specularAA = 0.0f;
+#endif
+            break;
         case Quality::Medium:
             shadowMapSize = 2048; planarReflections = true; ssao = true; ssr = false; volumetrics = true;
             taa = true; motionBlur = true; dof = false; bloom = true; tessellation = false;
@@ -197,6 +208,7 @@ GLuint Renderer::specularProbes() const { return probes_->baked() ? probes_->spe
 
 void Renderer::shutdown() {
     if (!frameUbo_.id) return;
+    destroySimpleMsaa();
     post_->shutdown();
     destroyTargets();
     shadows_->shutdown();
@@ -289,6 +301,7 @@ void Renderer::beginFrame(const Camera& cam, const Environment& env, float dt) {
     dt_ = dt;
     items_.clear();
     drawData_.clear();
+    programMemo_.clear();
     lights_.clear();
     ++frameIndex_;
 
@@ -297,7 +310,7 @@ void Renderer::beginFrame(const Camera& cam, const Environment& env, float dt) {
     mat4 view = cam.view();
     mat4 projNoJ = cam.proj(aspect);
     vec2 jitter(0, 0);
-    if (settings_.taa) {
+    if (settings_.taa && !settings_.simple) {   // the simple renderer has no TAA to resolve the jitter
         int k = int(frameIndex_ % 8) + 1;
         jitter = vec2((halton(k, 2) - 0.5f) * 2.0f / float(w), (halton(k, 3) - 0.5f) * 2.0f / float(h));
     }
@@ -378,10 +391,35 @@ void Renderer::uploadFrameUBO(const FrameUBOData& d) {
     glBindBufferBase(GL_UNIFORM_BUFFER, UBO_FRAME, frameUbo_.id);
 }
 
+// Tessellation shaders are a desktop-GL feature: a GL ES 3.2 context has none, so the Android
+// build (SCACELITH_GLES) always takes the untessellated path the Low and Medium presets already
+// use (mesh.vert with GL_TRIANGLES instead of the mesh.tesc / mesh.tese pair with GL_PATCHES).
+// The option stays in the settings file and in the Options page; it simply has no effect there.
+static bool tessellationEnabled(const RenderSettings& s) {
+#ifdef SCACELITH_GLES
+    (void)s;
+    return false;
+#else
+    return s.tessellation;
+#endif
+}
+
 const ShaderProgram* Renderer::programFor(const Material& mat, PassId pass, bool allowTess) {
+    // Per-frame memo (cleared in beginFrame, so a material edited between frames is seen): the
+    // lookup below builds the program's key string, too much to redo at every material change of
+    // a front-to-back draw order.
+    const uint64_t memoKey = (uint64_t(reinterpret_cast<uintptr_t>(&mat)) << 4) ^ (uint64_t(pass) << 1) ^ uint64_t(allowTess);
+    auto memo = programMemo_.find(memoKey);
+    if (memo != programMemo_.end()) return memo->second;
+    const ShaderProgram* found = programLookup(mat, pass, allowTess);
+    programMemo_.emplace(memoKey, found);
+    return found;
+}
+
+const ShaderProgram* Renderer::programLookup(const Material& mat, PassId pass, bool allowTess) {
     ProgramDesc d;
     d.vs = "shaders/passes/mesh.vert";
-    bool tess = mat.tessellated && settings_.tessellation && allowTess;
+    bool tess = mat.tessellated && tessellationEnabled(settings_) && allowTess;
     if (tess) {
         d.tcs = "shaders/passes/mesh.tesc";
         d.tes = "shaders/passes/mesh.tese";
@@ -389,6 +427,46 @@ const ShaderProgram* Renderer::programFor(const Material& mat, PassId pass, bool
     }
     d.material = mat.surface;
     d.displacement = mat.displacement;
+    if (settings_.simple && pass == PassId::Main) {
+        d.fs = "shaders/passes/simple.frag";
+        d.defines.push_back("PASS_MAIN");
+        d.defines.push_back("PASS_SIMPLE");
+        // The material by name (its constants in simple.frag), and whether it runs its real
+        // surface function: the small ones that carry information do.
+        const std::string base = mat.surface.substr(mat.surface.find_last_of('/') + 1, std::string::npos);
+        const std::string name = base.substr(0, base.find('.'));
+        d.defines.push_back("SIMPLE_MAT_" + name);
+        // (Not the glass: the hall's windows fill much of the screen, and its procedural cords and
+        // dust cost a phone more than the whole opaque scene. simple.frag has a plain pane.)
+        bool full = name == "clock_display" || name == "robot_eye" || name == "paper" || name == "robot_wire" ||
+                    name == "game_marker" || name == "coach_marker";
+        // The board's coordinates and the coach's chest lettering: plain material, plus the marking.
+        bool decal = false;
+        for (const auto& def : mat.defines) decal = decal || def == "BOARD_COORDINATES" || def == "ROBOT_MARKING";
+        // Options > Graphics, material textures: 1 = baked (the material's procedural surface,
+        // evaluated once into a texture: bakeSimpleMaterials), 2 = the procedural surface per pixel.
+        if (settings_.simpleMaterials >= 2) full = true;
+        if (full) d.defines.push_back("SIMPLE_FULL");
+        else if (decal) d.defines.push_back("SIMPLE_DECAL");
+        if (!full && settings_.simpleMaterials == 1) {
+            if (const SimpleBake* b = simpleBakeOf(mat)) {
+                char buf[160];
+                d.defines.push_back("SIMPLE_BAKED");
+                d.defines.push_back("SIMPLE_BAKE_MODE=" + std::to_string(b->mode));
+                std::snprintf(buf, sizeof(buf), "SIMPLE_BAKE_TILE=vec2(%.6f,%.6f)", b->tile.x, b->tile.y);
+                d.defines.push_back(buf);
+                std::snprintf(buf, sizeof(buf), "SIMPLE_BAKE_ORIGIN=vec3(%.6f,%.6f,%.6f)", b->origin.x, b->origin.y, b->origin.z);
+                d.defines.push_back(buf);
+                if (b->world) d.defines.push_back("SIMPLE_BAKE_WS");
+            }
+        }
+        if (settings_.lightProbes) d.defines.push_back("SIMPLE_PROBES");
+        if (mat.doubleSided) d.defines.push_back("MATERIAL_DOUBLE_SIDED");
+        if (mat.transparent) d.defines.push_back("MATERIAL_TRANSPARENT");
+        for (auto& def : mat.defines) d.defines.push_back(def);
+        const ShaderProgram& p = shaders::get(d);
+        return p.valid() ? &p : nullptr;
+    }
     switch (pass) {
         case PassId::Main: d.fs = "shaders/passes/forward.frag"; d.defines.push_back("PASS_MAIN"); break;
         case PassId::Planar: d.fs = "shaders/passes/forward.frag"; d.defines.push_back("PASS_PLANAR"); break;
@@ -450,12 +528,23 @@ void Renderer::drawScene(PassId pass, bool transparents, const DrawFilter& flt) 
         glProgramUniform1i(p->id, 0, int(it.drawIndex));
         for (int t = 0; t < 8; ++t)
             if (mat.textures[t]) glBindTextureUnit(GLuint(t), mat.textures[t]);
+        if (pass == PassId::Main && settings_.simple && settings_.simpleMaterials == 1)
+            if (const SimpleBake* sb = simpleBakeOf(mat)) glBindTextureUnit(5, sb->tex.id);   // simple.frag's uBaked
         if (mat.doubleSided || pass == PassId::Shadow) glDisable(GL_CULL_FACE);
         else glEnable(GL_CULL_FACE);
         it.d.mesh->bind();
-        bool tess = mat.tessellated && settings_.tessellation && flt.allowTessellation;
+        bool tess = mat.tessellated && tessellationEnabled(settings_) && flt.allowTessellation;
         if (tess) glPatchParameteri(GL_PATCH_VERTICES, 3);
+        const bool timed = pass == PassId::Main && gpu::profileGroupsEnabled();
+        double t0 = 0.0;
+        if (timed) { glFinish(); t0 = gpu::profileNowMs(); }
         glDrawElements(tess ? GL_PATCHES : GL_TRIANGLES, GLsizei(it.d.mesh->indexCount), GL_UNSIGNED_INT, nullptr);
+        if (timed) {
+            glFinish();
+            std::string key = "mat:" + mat.surface.substr(mat.surface.find_last_of('/') + 1);
+            for (const auto& def : mat.defines) key += "+" + def;
+            gpu::profileAdd(key, gpu::profileNowMs() - t0);
+        }
     }
     glEnable(GL_CULL_FACE);
 }
@@ -496,11 +585,18 @@ void Renderer::endFrame() {
     if (!drawData_.empty()) glNamedBufferSubData(drawSsbo_.id, 0, GLsizeiptr(drawData_.size() * sizeof(DrawDataGPU)), drawData_.data());
     gpu::ensureBuffer(lightSsbo_, std::max<size_t>(1, lights_.size()) * sizeof(PointLight));
     if (!lights_.empty()) glNamedBufferSubData(lightSsbo_.id, 0, GLsizeiptr(lights_.size() * sizeof(PointLight)), lights_.data());
+    if (settings_.simple && settings_.simpleMaterials == 1) bakeSimpleMaterials();
 
     // Sort opaques by program/material to limit state changes, transparents back to front.
-    std::stable_sort(items_.begin(), items_.end(), [](const Item& a, const Item& b) {
+    // The simple renderer has no depth prepass: its opaques go front to back instead, so the early
+    // depth test rejects what nearer surfaces already cover (the shader is cheap, a program
+    // change costs less than the overdraw it saves).
+    static const bool sortByMaterial = std::getenv("SCACELITH_SORT_BY_MATERIAL") != nullptr;   // diagnostics (A/B)
+    const bool frontToBack = settings_.simple && !sortByMaterial;
+    std::stable_sort(items_.begin(), items_.end(), [frontToBack](const Item& a, const Item& b) {
         if (a.d.material->transparent != b.d.material->transparent) return !a.d.material->transparent;
         if (a.d.material->transparent) return a.viewDepth > b.viewDepth;
+        if (frontToBack) return a.viewDepth < b.viewDepth;
         if (a.d.material != b.d.material) return a.d.material < b.d.material;
         return a.viewDepth < b.viewDepth;
     });
@@ -545,6 +641,16 @@ void Renderer::endFrame() {
             updateLightingUBO();
             bindGlobalTextures();
         }
+    }
+    if (settings_.simple) {   // after the probes: the simple renderer reads them when they are on
+        if (drawsScene) staticDirty_ = false;
+        vec4 viewPlanes[6];
+        DrawFilter mainFilter;
+        mainFilter.skipFlags = DRAW_HIDDEN_MAIN;
+        mainFilter.planes = viewPlanes;
+        mainFilter.planeCount = gpu::frustumPlanes(frame_.viewProjNoJitter, viewPlanes);
+        renderSimple(mainFilter);
+        return;
     }
     if (drawsScene) staticDirty_ = false;
     planarRefl_->render(*this);
@@ -647,16 +753,227 @@ void Renderer::endFrame() {
     gpu::profileEndFrame();
 }
 
+// ---- Baked material textures of the simple renderer -----------------------------------------
+const Renderer::SimpleBake* Renderer::simpleBakeOf(const Material& mat) const {
+    auto it = simpleBakes_.find(&mat);
+    return it != simpleBakes_.end() && it->second.ok ? &it->second : nullptr;
+}
+
+// Bakes, once, every material the frame draws that has a bake plan (below) and none yet. Runs at
+// the start of a frame, with the draws already uploaded: the bake reads the material's and the
+// object's parameters from the first item that uses it.
+void Renderer::bakeSimpleMaterials() {
+    for (const Item& it : items_) {
+        const Material& mat = *it.d.material;
+        if (mat.transparent || simpleBakes_.count(&mat)) continue;
+        SimpleBake& b = simpleBakes_[&mat];   // a failed plan stays, ok = false: never retried
+        const std::string base = mat.surface.substr(mat.surface.find_last_of('/') + 1);
+        const std::string name = base.substr(0, base.find('.'));
+        auto has = [&](const char* d) {
+            for (const auto& x : mat.defines)
+                if (x == d) return true;
+            return false;
+        };
+        // The plan: how the material is laid out (object or world space, mesh uv), the size of
+        // the patch baked (its pattern repeats beyond it) and the texture resolution.
+        int size = 512;
+        b.mode = 1;
+        if (name == "marble") {
+            if (has("MARBLE_FLOOR")) {   // world xz, tiles of params[4].x from params[4].zw
+                const float tileM = std::max(mat.params[4].x, 0.05f);
+                const float span = tileM * std::max(1.0f, std::round(2.4f / tileM));
+                b.mode = 2; b.world = true; b.tile = m::vec2(span, span);
+                b.origin = m::vec3(mat.params[4].z, 0.0f, mat.params[4].w);
+                size = 1024;
+            } else if (has("MARBLE_PIECE")) b.tile = m::vec2(0.08f, 0.08f);
+            else if (has("MARBLE_BOARD")) b.tile = m::vec2(0.12f, 0.12f);
+            else b.tile = m::vec2(0.6f, 0.6f);
+            if (has("BOARD_COORDINATES")) { simpleBakes_.erase(&mat); continue; }   // decal path
+        } else if (name == "limestone") {   // world space, whole ashlar blocks (running bond)
+            const float bw = std::max(mat.params[2].x, 0.05f), bh = std::max(mat.params[2].y, 0.05f);
+            b.world = true;
+            b.tile = m::vec2(bw * std::max(1.0f, std::round(3.0f / bw)), 2.0f * bh * std::max(1.0f, std::round(1.5f / bh)));
+            b.origin = mat.params[5].xyz();
+            size = 1024;
+        } else if (name == "wood" || name == "painted") b.tile = m::vec2(1.0f, 1.0f);
+        else if (name == "cloth") b.tile = m::vec2(0.3f, 0.3f);
+        else if (name == "metal" || name == "lacquer") b.tile = m::vec2(0.2f, 0.2f);
+        else if (name == "robot_porcelain" && !has("ROBOT_MARKING")) { b.tile = m::vec2(0.3f, 0.3f); size = 256; }
+        else if (name == "robot_joint") { b.tile = m::vec2(0.08f, 0.08f); size = 256; }
+        else if (name == "wax") { b.tile = m::vec2(0.1f, 0.1f); size = 256; }
+        else if (name == "ceiling" || name == "tapestry") { b.mode = 3; size = 1024; }
+        else { simpleBakes_.erase(&mat); continue; }   // no plan: plain colour
+
+        ProgramDesc d;
+        d.vs = "shaders/passes/fullscreen.vert";
+        d.fs = "shaders/passes/simple_bake.frag";
+        d.material = mat.surface;
+        d.defines.push_back("PASS_MAIN");
+        for (auto& def : mat.defines) d.defines.push_back(def);
+        const ShaderProgram& p = shaders::get(d);
+        if (!p.valid()) continue;
+        const int layers = b.mode == 1 ? 3 : 1;
+        b.tex = gpu::createTexture2DArray(size, size, layers, GL_SRGB8_ALPHA8, 0);
+        gpu::setWrap(b.tex, GL_REPEAT);
+        auto t0 = std::chrono::steady_clock::now();
+        p.use();
+        glProgramUniform1i(p.id, 0, int(it.drawIndex));
+        glProgramUniform2f(p.id, 2, b.mode == 3 ? 1.0f : b.tile.x, b.mode == 3 ? 1.0f : b.tile.y);
+        glProgramUniform3f(p.id, 3, b.origin.x, b.origin.y, b.origin.z);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, SSBO_DRAWS, drawSsbo_.id);
+        glBindBufferBase(GL_UNIFORM_BUFFER, UBO_FRAME, frameUbo_.id);
+        for (int t = 0; t < 8; ++t)
+            if (mat.textures[t]) glBindTextureUnit(GLuint(t), mat.textures[t]);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+        glDisable(GL_CULL_FACE);
+#ifndef SCACELITH_GLES
+        glEnable(GL_FRAMEBUFFER_SRGB);   // the albedo goes in as sRGB (ES always converts)
+#endif
+        glViewport(0, 0, size, size);
+        for (int l = 0; l < layers; ++l) {
+            gpu::Framebuffer fb = gpu::createFramebufferLayer(&b.tex, l, nullptr, 0);
+            glBindFramebuffer(GL_FRAMEBUFFER, fb.id);
+            glProgramUniform1i(p.id, 1, b.mode == 1 ? l : (b.mode == 2 ? 1 : 3));
+            gpu::drawFullscreenTriangle();
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            fb.destroy();
+        }
+#ifndef SCACELITH_GLES
+        glDisable(GL_FRAMEBUFFER_SRGB);
+#endif
+        glGenerateTextureMipmap(b.tex.id);
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glFinish();   // the bake's time in the log (once per material)
+        b.ok = true;
+        LOGI("simple renderer: baked %s%s (%dx%d x%d) in %.0f ms", name.c_str(), mat.defines.empty() ? "" : ("+" + mat.defines[0]).c_str(),
+             size, size, layers, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+    }
+    glViewport(0, 0, rt_.w, rt_.h);
+}
+
+// The multisampled targets of the simple renderer's MSAA option, (re)made at the render size.
+bool Renderer::ensureSimpleMsaa() {
+    if (msaa_.fb && msaa_.w == rt_.w && msaa_.h == rt_.h) return true;
+    destroySimpleMsaa();
+    GLint maxSamples = 0;
+    glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+    const int samples = std::min(4, int(maxSamples));
+    if (samples < 2) return false;
+    glCreateRenderbuffers(1, &msaa_.color);
+    glNamedRenderbufferStorageMultisample(msaa_.color, samples, GL_RGBA16F, rt_.w, rt_.h);
+    glCreateRenderbuffers(1, &msaa_.depth);
+    glNamedRenderbufferStorageMultisample(msaa_.depth, samples, GL_DEPTH_COMPONENT32F, rt_.w, rt_.h);
+    glCreateFramebuffers(1, &msaa_.fb);
+    glNamedFramebufferRenderbuffer(msaa_.fb, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, msaa_.color);
+    glNamedFramebufferRenderbuffer(msaa_.fb, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, msaa_.depth);
+    glNamedFramebufferDrawBuffer(msaa_.fb, GL_COLOR_ATTACHMENT0);
+    if (glCheckNamedFramebufferStatus(msaa_.fb, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        LOGW("simple renderer: no %dx MSAA target, anti-aliasing off", samples);
+        destroySimpleMsaa();
+        return false;
+    }
+    msaa_.w = rt_.w;
+    msaa_.h = rt_.h;
+    LOGI("simple renderer: %dx MSAA at %dx%d", samples, rt_.w, rt_.h);
+    return true;
+}
+
+void Renderer::destroySimpleMsaa() {
+    if (msaa_.fb) glDeleteFramebuffers(1, &msaa_.fb);
+    if (msaa_.color) glDeleteRenderbuffers(1, &msaa_.color);
+    if (msaa_.depth) glDeleteRenderbuffers(1, &msaa_.depth);
+    msaa_ = SimpleMsaa();
+}
+
+// The simple renderer (RenderSettings::simple): opaques, sky, transparents into the HDR target,
+// then the display transform to the backbuffer.
+void Renderer::renderSimple(const DrawFilter& mainFilter) {
+    {
+        gpu::DebugGroup og("simple.opaque");
+        gpu::ProfileScope prof("opaque");
+        frame_.passInfo.x = float(PassId::Main);
+        uploadFrameUBO(frame_);
+        GLuint target = rt_.fbTransparent.id;
+        if (settings_.simpleMsaa && ensureSimpleMsaa()) target = msaa_.fb;
+        glBindFramebuffer(GL_FRAMEBUFFER, target);
+        glViewport(0, 0, rt_.w, rt_.h);
+        const float zero4[4] = {0, 0, 0, 0};
+        float zero = 0.0f;
+        glClearNamedFramebufferfv(target, GL_COLOR, 0, zero4);
+        glClearNamedFramebufferfv(target, GL_DEPTH, 0, &zero);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_GREATER);
+        glDepthMask(GL_TRUE);
+        drawScene(PassId::Main, false, mainFilter);
+    }
+    {
+        gpu::ProfileScope prof("sky.draw");
+        renderSky();
+    }
+    {
+        gpu::DebugGroup tg("simple.transparent");
+        gpu::ProfileScope prof("transparent");
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_FUNC_ADD);
+        // Premultiplied colour over what is behind; the target's alpha is left alone.
+        glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_GREATER);
+        glDepthMask(GL_FALSE);
+        drawScene(PassId::Main, true, mainFilter);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ZERO);
+    }
+    if (settings_.simpleMsaa && msaa_.fb) {
+        // Resolve the samples into the HDR target the display pass reads (on a tiled GPU the
+        // samples never leave the tile memory: the resolve happens as the tile is written out).
+        gpu::DebugGroup rg("simple.resolve");
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, msaa_.fb);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, rt_.fbTransparent.id);
+        glBlitFramebuffer(0, 0, rt_.w, rt_.h, 0, 0, rt_.w, rt_.h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+    {
+        gpu::DebugGroup dg("simple.display");
+        gpu::ProfileScope prof("post.resolve");
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, width_, height_);
+        glDisable(GL_DEPTH_TEST);
+        const ShaderProgram& p = shaders::fullscreen("shaders/post/simple_tonemap.frag");
+        if (p.valid()) {
+            p.use();
+            glProgramUniform1f(p.id, 1, std::exp2(post_->settings.exposureCompensation));
+            glProgramUniform1f(p.id, 2, post_->settings.fade);
+            glBindTextureUnit(0, rt_.hdr.id);
+            gpu::drawFullscreenTriangle();
+        }
+    }
+    glViewport(0, 0, width_, height_);
+    gpu::profileEndFrame();
+}
+
 void Renderer::readBackbuffer(std::vector<uint8_t>& rgb, int& w, int& h) {
     w = width_;
     h = height_;
-    std::vector<uint8_t> tmp(size_t(w) * size_t(h) * 3);
     glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     glReadBuffer(GL_BACK);
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    rgb.resize(size_t(w) * size_t(h) * 3);
+#ifdef SCACELITH_GLES
+    // GL ES reads the default framebuffer as RGBA / UNSIGNED_BYTE only (GL_RGB is an error).
+    std::vector<uint8_t> tmp(size_t(w) * size_t(h) * 4);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, tmp.data());
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            std::memcpy(&rgb[(size_t(y) * size_t(w) + size_t(x)) * 3], &tmp[(size_t(h - 1 - y) * size_t(w) + size_t(x)) * 4], 3);
+#else
+    std::vector<uint8_t> tmp(size_t(w) * size_t(h) * 3);
     glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, tmp.data());
-    rgb.resize(tmp.size());
     for (int y = 0; y < h; ++y) std::memcpy(&rgb[size_t(y) * size_t(w) * 3], &tmp[size_t(h - 1 - y) * size_t(w) * 3], size_t(w) * 3);
+#endif
 }
 
 }  // namespace render

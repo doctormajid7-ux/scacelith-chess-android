@@ -1,14 +1,25 @@
 // Procedural noise toolkit shared by materials and texture generators.
 // All functions are deterministic and tile-free (hash based).
 
+#ifdef DBG_FLOAT_HASH
+vec3 hash33(vec3 p) {
+    vec3 p3 = fract(floor(p) * vec3(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yxz + 33.33);
+    return fract((p3.xxy + p3.yxx) * p3.zyx);
+}
+#else
 vec3 hash33(vec3 p) {
     uvec3 q = uvec3(ivec3(floor(p))) * uvec3(1597334673u, 3812015801u, 2798796415u);
     q = (q.x ^ q.y ^ q.z) * uvec3(1597334673u, 3812015801u, 2798796415u);
     return vec3(q) * (1.0 / 4294967295.0);
 }
+#endif
 
 // Quintic-interpolated gradient noise, range ~[-1,1].
 float gnoise(vec3 p) {
+#ifdef DBG_NO_NOISE
+    return 0.0;
+#endif
     vec3 i = floor(p), f = fract(p);
     vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
     float r = 0.0;
@@ -55,6 +66,9 @@ float ridged(vec3 p, int octaves) {
 
 // Cellular (Worley) noise: x = F1, y = F2 distances, z = cell id hash.
 vec3 voronoi(vec3 p) {
+#ifdef DBG_NO_NOISE
+    return vec3(0.5, 0.8, 0.5);
+#endif
     vec3 i = floor(p), f = fract(p);
     float f1 = 8.0, f2 = 8.0, id = 0.0;
     for (int z = -1; z <= 1; ++z)

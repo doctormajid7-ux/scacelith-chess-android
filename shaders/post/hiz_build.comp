@@ -3,7 +3,7 @@
 #include "shaders/post/post_common.glsl"
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform sampler2D uSrc;           // HiZ texture, source level via uLevel
-layout(binding = 0, rg32f) uniform writeonly image2D oDst;
+layout(binding = 0, rgba32f) uniform writeonly image2D oDst;   // rg = min/max, ba unused (no RG32F image format in GL ES)
 layout(location = 1) uniform int uLevel;              // source level
 
 void main() {

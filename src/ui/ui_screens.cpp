@@ -224,9 +224,14 @@ void copyOptions(game::Settings& dst, const game::Settings& src) {
     dst.fullscreen = src.fullscreen;
     dst.vsync = src.vsync;
     dst.renderScale = src.renderScale;
+    dst.textScale = src.textScale;
     dst.quality = src.quality;
     dst.motionBlur = src.motionBlur;
     dst.depthOfField = src.depthOfField;
+    dst.simpleRenderer = src.simpleRenderer;
+    dst.simpleMaterials = src.simpleMaterials;
+    dst.simpleIndirect = src.simpleIndirect;
+    dst.simpleMsaa = src.simpleMsaa;
     dst.brightness = src.brightness;
     dst.masterVolume = src.masterVolume;
     dst.effectsVolume = src.effectsVolume;
@@ -240,6 +245,7 @@ void copyOptions(game::Settings& dst, const game::Settings& src) {
     dst.mouseSensitivity = src.mouseSensitivity;
     dst.invertLook = src.invertLook;
     dst.gameCursor = src.gameCursor;
+    dst.touchDirect = src.touchDirect;
     dst.autoPressClock = src.autoPressClock;
     dst.ignoreOpponentHead = src.ignoreOpponentHead;
     dst.handoverSeconds = src.handoverSeconds;
@@ -253,12 +259,13 @@ void copyOptions(game::Settings& dst, const game::Settings& src) {
 bool sameOptions(const game::Settings& a, const game::Settings& b) {
     auto feq = [](float x, float y) { return std::fabs(x - y) < 1e-4f; };
     return a.displayWidth == b.displayWidth && a.displayHeight == b.displayHeight && a.fullscreen == b.fullscreen &&
-           a.vsync == b.vsync && feq(a.renderScale, b.renderScale) && a.quality == b.quality && a.motionBlur == b.motionBlur &&
-           a.depthOfField == b.depthOfField && feq(a.brightness, b.brightness) && feq(a.masterVolume, b.masterVolume) &&
+           a.vsync == b.vsync && feq(a.renderScale, b.renderScale) && feq(a.textScale, b.textScale) && a.quality == b.quality && a.motionBlur == b.motionBlur &&
+           a.depthOfField == b.depthOfField && a.simpleRenderer == b.simpleRenderer &&
+           a.simpleMaterials == b.simpleMaterials && a.simpleIndirect == b.simpleIndirect && a.simpleMsaa == b.simpleMsaa && feq(a.brightness, b.brightness) && feq(a.masterVolume, b.masterVolume) &&
            feq(a.effectsVolume, b.effectsVolume) && feq(a.ambienceVolume, b.ambienceVolume) && a.ambience == b.ambience &&
            feq(a.voiceVolume, b.voiceVolume) && a.subtitles == b.subtitles && a.coachVoice == b.coachVoice &&
            a.showLegalMoves == b.showLegalMoves && a.showCoordinates == b.showCoordinates &&
-           feq(a.mouseSensitivity, b.mouseSensitivity) && a.invertLook == b.invertLook && a.gameCursor == b.gameCursor &&
+           feq(a.mouseSensitivity, b.mouseSensitivity) && a.invertLook == b.invertLook && a.gameCursor == b.gameCursor && a.touchDirect == b.touchDirect &&
            a.autoPressClock == b.autoPressClock && a.ignoreOpponentHead == b.ignoreOpponentHead &&
            a.humanizeThinking == b.humanizeThinking && feq(a.handoverSeconds, b.handoverSeconds) &&
            cleanName(a.playerName) == cleanName(b.playerName) && a.handStyle == b.handStyle && a.saveGames == b.saveGames &&
@@ -482,6 +489,8 @@ bool optionsPage(MenuAction& act) {
             im::tooltip(T("options.vsync.help"));
             im::sliderRow(L("options.render_scale"), s.renderScale, 0.5f, 2.0f, 0.05f, pct, row());
             im::tooltip(T("options.render_scale.help"));
+            im::sliderRow(L("options.text_scale"), s.textScale, 0.8f, 1.6f, 0.05f, pct, row());
+            im::tooltip(T("options.text_scale.help"));
             break;
         }
         case 1: {
@@ -495,6 +504,21 @@ bool optionsPage(MenuAction& act) {
             im::tooltip(T("options.motion_blur.help"));
             im::toggleRow(L("options.depth_of_field"), s.depthOfField, row());
             im::tooltip(T("options.depth_of_field.help"));
+            im::toggleRow(L("options.simple_renderer"), s.simpleRenderer, row());
+            im::tooltip(T("options.simple_renderer.help"));
+            if (s.simpleRenderer) {
+                int m = std::clamp(s.simpleMaterials, 0, 2);
+                if (im::selectorRow(L("options.simple_materials"), m,
+                                    {T("options.simple_materials.plain"), T("options.simple_materials.light"),
+                                     T("options.simple_materials.full")},
+                                    row()))
+                    s.simpleMaterials = m;
+                im::tooltip(T("options.simple_materials.help"));
+                im::toggleRow(L("options.simple_indirect"), s.simpleIndirect, row());
+                im::tooltip(T("options.simple_indirect.help"));
+                im::toggleRow(L("options.simple_msaa"), s.simpleMsaa, row());
+                im::tooltip(T("options.simple_msaa.help"));
+            }
             im::sliderRow(L("options.brightness"), s.brightness, -2.0f, 2.0f, 0.1f, brightnessText, row());
             im::tooltip(T("options.brightness.help"));
             break;
@@ -533,6 +557,14 @@ bool optionsPage(MenuAction& act) {
             im::toggleRow(L("options.invert_look"), s.invertLook, row());
             im::toggleRow(L("options.game_cursor"), s.gameCursor, row());
             im::tooltip(T("options.game_cursor.help"));
+#ifdef __ANDROID__
+            {
+                int t = s.touchDirect ? 1 : 0;
+                if (im::selectorRow(L("options.touch_mode"), t, {T("options.touch_mode.touchpad"), T("options.touch_mode.direct")}, row()))
+                    s.touchDirect = t == 1;
+                im::tooltip(T("options.touch_mode.help"));
+            }
+#endif
             {
                 // Hot-seat handover: an instant cut, or a flight of 0.8 to 2 s.
                 static const float kHandover[] = {0.0f, 0.8f, 1.0f, 1.2f, 1.4f, 1.6f, 1.8f, 2.0f};

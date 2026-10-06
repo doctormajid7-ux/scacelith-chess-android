@@ -24,11 +24,36 @@ struct Settings {
     int displayHeight = 900;
     bool fullscreen = true;       // borderless fullscreen
     bool vsync = true;
+#ifdef __ANDROID__
+    // A phone screen has 1.5-2x the pixels of a 1080p monitor and a fraction of a desktop GPU's
+    // bandwidth: start at the Low preset (no planar reflections, SSR, volumetrics, DOF) and 60 %
+    // resolution, TAA reconstructing the rest. Options > Graphics raises both.
+    float renderScale = 0.6f;
+    float textScale = 1.2f;       // interface text size (a phone's screen is small and close)
+    // [graphics]
+    int quality = 0;              // 0 Low, 1 Medium, 2 High, 3 Ultra
+    bool motionBlur = false;
+    bool depthOfField = false;
+#else
     float renderScale = 1.0f;
+    float textScale = 1.0f;       // interface text size
     // [graphics]
     int quality = 2;              // 0 Low, 1 Medium, 2 High, 3 Ultra
     bool motionBlur = true;
     bool depthOfField = true;
+#endif
+    // render::RenderSettings::simple, the light renderer, on every platform by default: it keeps
+    // modest machines (phones, integrated GPUs, a GTX 1050) fluid. Options > Graphics turns the
+    // full renderer back on.
+    bool simpleRenderer = true;
+    // The simple renderer's options (Options > Graphics, under the simple renderer's switch).
+    int simpleMaterials = 1;      // 0 plain colours, 1 baked textures, 2 procedural per pixel
+    bool simpleIndirect = true;   // indirect lighting (the light probes, ~3.5 ms on a phone)
+#ifdef __ANDROID__
+    bool simpleMsaa = false;      // 4x MSAA (~6 ms on a phone at full resolution)
+#else
+    bool simpleMsaa = true;
+#endif
     float brightness = 0.0f;      // exposure compensation (EV)
     // The brightness calibration was completed (Continue or Esc on its page). Until then every
     // start opens on it (screenshot runs excepted), however the previous runs ended. A settings
@@ -46,6 +71,7 @@ struct Settings {
     float mouseSensitivity = 1.0f;
     bool invertLook = false;
     bool gameCursor = true;       // the game's own pointer at the table instead of the system arrow
+    bool touchDirect = false;     // Android: the finger is the pointer (else a touchpad moves an arrow)
     // The player's robot presses the clock by itself once the move is on the board (games on
     // this PC: against Stockfish and two players; online, the server or the host decides).
     bool autoPressClock = false;

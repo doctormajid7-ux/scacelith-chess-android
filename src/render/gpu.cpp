@@ -1,5 +1,8 @@
 #include "gpu.h"
 #include "../core/log.h"
+#ifdef SCACELITH_GLES
+#include "../gl/gl46_gles.h"
+#endif
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -20,6 +23,18 @@ static void defaultSampling(const Texture& t) {
     bool mips = t.levels > 1;
     bool isInt = t.format == GL_R32UI || t.format == GL_RG32UI || t.format == GL_RGBA32UI || t.format == GL_R8UI ||
                  t.format == GL_R32I || t.format == GL_R16UI;
+#ifdef SCACELITH_GLES
+    // GL ES never filters a depth texture read without a compare mode: with a LINEAR filter it is
+    // incomplete, and every texelFetch of the scene depth (depth_prep, half_prep, SSR) returns 0,
+    // i.e. "sky" everywhere. Nearest by default; the shadow lookups bring their own (compare)
+    // sampler objects (Renderer::bindGlobalTextures, PostFX's shadowSampler).
+    isInt = isInt || t.format == GL_DEPTH_COMPONENT16 || t.format == GL_DEPTH_COMPONENT24 ||
+            t.format == GL_DEPTH_COMPONENT32F || t.format == GL_DEPTH24_STENCIL8 || t.format == GL_DEPTH32F_STENCIL8;
+    // 32-bit float textures filter only with OES_texture_float_linear (Adreno has it, not every
+    // Mali does); without it a LINEAR one is incomplete and reads as 0 as well.
+    static const bool floatLinear = gl46::glesHasExtension("GL_OES_texture_float_linear");
+    if (!floatLinear) isInt = isInt || t.format == GL_R32F || t.format == GL_RG32F || t.format == GL_RGBA32F;
+#endif
     GLenum minF = isInt ? GL_NEAREST : (mips ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
     glTextureParameteri(t.id, GL_TEXTURE_MIN_FILTER, minF);
     glTextureParameteri(t.id, GL_TEXTURE_MAG_FILTER, isInt ? GL_NEAREST : GL_LINEAR);
@@ -167,8 +182,6 @@ void dispatch2D(int w, int h, int lx, int ly) {
     glDispatchCompute(GLuint((w + lx - 1) / lx), GLuint((h + ly - 1) / ly), 1);
 }
 
-DebugGroup::DebugGroup(const char* name) { glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, -1, name); }
-DebugGroup::~DebugGroup() { glPopDebugGroup(); }
 
 int frustumPlanes(const m::mat4& vp, m::vec4 out[6], bool sidesOnly) {
     auto row = [&](int i) { return m::vec4(vp.c[0][i], vp.c[1][i], vp.c[2][i], vp.c[3][i]); };
@@ -213,6 +226,37 @@ ProfileScope::~ProfileScope() {
     for (auto& e : g_prof)
         if (e.name == name_) { e.ms += ms; return; }
     g_prof.push_back({name_, ms});
+}
+
+static bool profileGroups() {
+    static const bool on = profilingEnabled() && std::getenv("SCACELITH_GPU_PROFILE_GROUPS");
+    return on;
+}
+
+DebugGroup::DebugGroup(const char* name) {
+    glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, -1, name);
+    if (!profileGroups()) return;
+    name_ = name;
+    glFinish();
+    start_ = nowMs();
+}
+DebugGroup::~DebugGroup() {
+    glPopDebugGroup();
+    if (!name_) return;
+    glFinish();
+    const double ms = nowMs() - start_;
+    const std::string key = std::string("[") + name_ + "]";
+    for (auto& e : g_prof)
+        if (e.name == key) { e.ms += ms; return; }
+    g_prof.push_back({key, ms});
+}
+
+bool profileGroupsEnabled() { return profileGroups(); }
+double profileNowMs() { return nowMs(); }
+void profileAdd(const std::string& name, double ms) {
+    for (auto& e : g_prof)
+        if (e.name == name) { e.ms += ms; return; }
+    g_prof.push_back({name, ms});
 }
 
 void profileEndFrame() {

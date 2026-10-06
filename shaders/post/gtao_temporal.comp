@@ -8,7 +8,7 @@ layout(binding = 1) uniform sampler2D uHalfDepth;
 layout(binding = 2) uniform sampler2D uHalfDepthPrev;
 layout(binding = 3) uniform sampler2D uVelocity;
 layout(binding = 4) uniform sampler2D uHistory;
-layout(binding = 0, r16f) uniform writeonly image2D oAO;
+layout(binding = 0, rgba16f) uniform writeonly image2D oAO;   // r16f is not an image format in GL ES
 
 void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);

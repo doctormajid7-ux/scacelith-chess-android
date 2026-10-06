@@ -20,6 +20,12 @@ public:
     // True once when a distant creak should be triggered by the mixer.
     bool popCreak(Event& e);
 
+    // Diagnostics for the tests. The bird pool is kBirds slots; a phrase that arrives with all of
+    // them busy is skipped rather than written over a sounding bird, and these expose that state.
+    int activeBirds() const;
+    int birdWindow(int slot) const;                      // -1 when the slot is free
+    bool startBirdForTest(int windowHint, int species);  // false when the phrase was skipped
+
 private:
     static constexpr int kWindows = 3;
     static constexpr int kBirds = 3;

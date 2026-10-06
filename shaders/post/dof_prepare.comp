@@ -6,7 +6,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform sampler2D uColor;
 layout(binding = 1) uniform sampler2D uLinearDepth;
 layout(binding = 0, rgba16f) uniform writeonly image2D oHalf;   // rgb colour, a = CoC (half-res px, signed)
-layout(binding = 1, r16f) uniform writeonly image2D oTiles;     // max |CoC| (half-res px)
+layout(binding = 1, rgba16f) uniform writeonly image2D oTiles;     // max |CoC| (half-res px)
 shared float sMax[64];
 
 void main() {

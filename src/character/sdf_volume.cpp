@@ -294,7 +294,16 @@ struct Decimator {
 
 }  // namespace
 
-MeshData meshVolume(const Fn& f, const std::vector<vec3>& seeds, const VolumeOptions& o) {
+MeshData meshVolume(const Fn& f, const std::vector<vec3>& seeds, const VolumeOptions& oIn) {
+#ifdef __ANDROID__
+    // Phones: coarser grid and decimation tolerance (see meshSegment in sdf_mesh.cpp).
+    VolumeOptions o = oIn;
+    o.cell *= 1.4f;
+    o.maxError *= 3.0f;
+    o.maxEdge *= 1.5f;
+#else
+    const VolumeOptions& o = oIn;
+#endif
     const auto t0 = std::chrono::steady_clock::now();
     const float h = o.cell;
     Grid g(f, h);

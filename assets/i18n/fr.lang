@@ -47,6 +47,8 @@ options.vsync = Synchro verticale
 options.vsync.help = Synchronise les images avec l’écran pour éviter les déchirures.
 options.render_scale = Échelle de rendu
 options.render_scale.help = Résolution interne de l’image 3D. Plus bas est plus rapide, plus haut est plus net.
+options.text_scale = Taille du texte
+options.text_scale.help = La taille des textes de l'interface : menus, options, sous-titres du coach.
 
 options.quality = Qualité
 options.quality.low = Basse
@@ -58,6 +60,17 @@ options.motion_blur = Flou de mouvement
 options.motion_blur.help = Floute les mouvements rapides de la caméra et des bras, comme le fait une caméra de cinéma.
 options.depth_of_field = Profondeur de champ
 options.depth_of_field.help = Adoucit ce qui se trouve loin devant ou derrière ce que vous regardez, comme le fait un objectif photo.
+options.simple_renderer = Rendu simplifié
+options.simple_renderer.help = Un rendu plus léger pour les puces graphiques modestes (téléphones) : couleurs unies des matériaux, ombre du soleil et éclairage simple, sans reflets ni effets de post-traitement.
+options.simple_materials = Textures des matériaux
+options.simple_materials.help = Comment le rendu simplifié dessine les matériaux. Unies : une couleur par matériau (le plus rapide). Précalculées : les vrais motifs du marbre, du bois, de la pierre et des tissus, calculés une fois au chargement dans des textures (rapide). Complètes : calculées pour chaque pixel (très exigeant sur un téléphone).
+options.simple_materials.plain = Unies
+options.simple_materials.light = Précalculées
+options.simple_materials.full = Complètes
+options.simple_indirect = Éclairage indirect
+options.simple_indirect.help = La lumière que le soleil renvoie dans toute la salle, et ses reflets doux (calculée une fois, au chargement).
+options.simple_msaa = Anticrénelage (MSAA)
+options.simple_msaa.help = Lisse les bords crénelés des objets (multi-échantillonnage 4x ; presque gratuit sur une puce graphique de téléphone).
 options.brightness = Luminosité
 options.brightness.neutral = Neutre
 options.brightness.value = {0} EV
@@ -91,6 +104,10 @@ options.handover.flight = Vol, {0} s
 options.handover.help = Deux joueurs sur un même PC : comment la vue passe des yeux d’un joueur à ceux de l’autre après chaque coup. La coupe instantanée évite le mouvement de caméra.
 options.game_cursor = Curseur du jeu
 options.game_cursor.help = À la table, le jeu dessine son propre curseur, qui montre ce que fera un clic. Désactivé : la flèche habituelle du système.
+options.touch_mode = Contrôle tactile
+options.touch_mode.help = Pavé tactile : le doigt déplace une flèche, un tap clique là où est la flèche, un appui long immobile maintient le bouton. Direct : le doigt est le pointeur, touchez une pièce puis sa case (ou faites-la glisser).
+options.touch_mode.touchpad = Pavé tactile (flèche)
+options.touch_mode.direct = Direct (au doigt)
 
 # ---- Player profile (Options > Player) ---------------------------------------------------------
 player.name = Nom

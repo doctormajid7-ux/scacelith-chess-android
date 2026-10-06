@@ -34,7 +34,9 @@ void main() {
     ivec2 hp = min(p / 2, hsize - 1);
     int count = rough < 0.1 ? 1 : 4;
     int rot = int(post.timing.y) & 7;
-    float maxMip = float(textureQueryLevels(uColorPyramid) - 1);
+    // GLSL ES has no textureQueryLevels: the pyramid holds min(mipCount(w, h), 8) levels
+    // (postfx.cpp), so its top level is min(floor(log2(max(w, h))), 7).
+    float maxMip = min(floor(log2(max(post.renderSize.x, post.renderSize.y))), 7.0);
 
     if (count == 1) {
         // Mirror-like: a neighbouring ray only provides a hit distance. Re-project it along this

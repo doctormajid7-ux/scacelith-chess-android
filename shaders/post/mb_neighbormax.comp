@@ -3,7 +3,7 @@
 #include "shaders/post/post_common.glsl"
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform sampler2D uTiles;
-layout(binding = 0, rg16f) uniform writeonly image2D oNeighbor;
+layout(binding = 0, rgba16f) uniform writeonly image2D oNeighbor;   // rg = vector (no RG16F image format in GL ES)
 
 void main() {
     ivec2 t = ivec2(gl_GlobalInvocationID.xy);

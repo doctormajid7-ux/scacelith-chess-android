@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher name. The game's own strings are in assets/ and embedded in the library
+     (src/i18n), not in Android resources. -->
+<resources>
+    <string name="app_name" translatable="false">Scacelith</string>
+</resources>

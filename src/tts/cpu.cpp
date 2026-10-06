@@ -55,11 +55,17 @@ const Table* tableFor(int level) { return cpuRuns(level) ? builtTable(level) : n
 
 const Table& active() {
     // Levels are not a strict chain (a CPU may have AVX-512 VNNI without AVX-VNNI or the reverse):
-    // take the highest one the CPU runs, under the cap.
+    // take the highest one the CPU runs, under the cap. A level this build did not compile (a cap
+    // set from the settings file on an architecture whose units are not there, e.g. sse2 on
+    // arm64, where only the scalar table exists) falls back to the scalar one rather than to a
+    // null table: the cap is a troubleshooting knob, not a promise that the level exists.
     int cap = g_cap.load(std::memory_order_relaxed);
     for (int level = cap; level > kScalar; --level)
-        if (cpuRuns(level)) return *builtTable(level);
-    return *builtTable(kSse2 <= cap ? kSse2 : kScalar);
+        if (cpuRuns(level)) {
+            if (const Table* t = builtTable(level)) return *t;
+        }
+    if (const Table* t = builtTable(kSse2 <= cap ? kSse2 : kScalar)) return *t;
+    return *builtTable(kScalar);
 }
 
 bool setArchCap(const char* arch) {

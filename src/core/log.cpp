@@ -6,6 +6,11 @@
 #include <filesystem>
 #include <windows.h>
 #endif
+// Android: stderr goes nowhere on an app process, so the log would be lost; every line also goes
+// to logcat (adb logcat -s scacelith).
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 namespace logx {
 static std::mutex g_mutex;
@@ -41,6 +46,10 @@ void vwrite(Level lvl, const char* fmt, va_list ap) {
     if (g_file) { std::fputs(line, g_file); std::fflush(g_file); }
 #ifdef _WIN32
     OutputDebugStringA(line);
+#endif
+#ifdef __ANDROID__
+    static const int prio[] = {ANDROID_LOG_DEBUG, ANDROID_LOG_INFO, ANDROID_LOG_WARN, ANDROID_LOG_ERROR};
+    __android_log_print(prio[int(lvl)], "scacelith", "%s", msg);
 #endif
 }
 

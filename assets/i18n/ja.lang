@@ -46,6 +46,8 @@ options.vsync = 垂直同期
 options.vsync.help = フレームを画面と同期させ、ティアリングを防ぎます。
 options.render_scale = レンダリング倍率
 options.render_scale.help = 3D画像の内部解像度。低いほど速く、高いほど鮮明になります。
+options.text_scale = 文字サイズ
+options.text_scale.help = インターフェースの文字の大きさ：メニュー、設定、コーチの字幕。
 
 options.quality = 画質
 options.quality.low = 低
@@ -57,6 +59,17 @@ options.motion_blur = モーションブラー
 options.motion_blur.help = 映画のカメラのように、カメラや腕の速い動きをぼかします。
 options.depth_of_field = 被写界深度
 options.depth_of_field.help = カメラのレンズのように、見ているものよりずっと手前や奥にあるものをぼかします。
+options.simple_renderer = 簡易レンダリング
+options.simple_renderer.help = 性能の低いグラフィックチップ（スマートフォン）向けの軽いレンダリング：素材の単色、太陽の影とシンプルなライティング。反射やポストエフェクトはありません。
+options.simple_materials = 素材のテクスチャ
+options.simple_materials.help = 簡易レンダリングでの素材の描き方。単色：素材ごとに一色（最速）。事前計算：大理石・木・石・布の本来の模様を、読み込み時に一度だけテクスチャへ計算（高速）。完全：ピクセルごとに計算（スマートフォンには非常に重い）。
+options.simple_materials.plain = 単色
+options.simple_materials.light = 事前計算
+options.simple_materials.full = 完全
+options.simple_indirect = 間接照明
+options.simple_indirect.help = 太陽が広間全体に反射させる光と、その柔らかな映り込み（読み込み時に一度だけ計算）。
+options.simple_msaa = アンチエイリアス (MSAA)
+options.simple_msaa.help = 物体のギザギザした輪郭をなめらかにします（4x マルチサンプリング。スマートフォンのグラフィックチップではほぼ負荷なし）。
 options.brightness = 明るさ
 options.brightness.neutral = 標準
 options.brightness.value = {0} EV
@@ -90,6 +103,10 @@ options.handover.flight = カメラ移動、{0}秒
 options.handover.help = 1台のPCで2人が対局するとき、1手ごとに一方のプレイヤーの視点からもう一方の視点へどう移るか。即時切り替えではカメラが動きません。
 options.game_cursor = ゲーム内ポインター
 options.game_cursor.help = テーブルではゲーム独自のポインターを表示し、クリックで何が起きるかを示します。オフ：通常のシステム矢印。
+options.touch_mode = タッチ操作
+options.touch_mode.help = タッチパッド：指で矢印を動かし、タップで矢印の位置をクリック、動かさずに長押しでボタンを押したままに。ダイレクト：指がポインター。駒をタップしてから移動先をタップ（またはドラッグ）。
+options.touch_mode.touchpad = タッチパッド（矢印）
+options.touch_mode.direct = ダイレクト（指）
 
 # ---- Player profile (Options > Player) ---------------------------------------------------------
 player.name = 名前

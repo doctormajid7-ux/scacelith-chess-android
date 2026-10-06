@@ -227,8 +227,12 @@ MeshData meshSurfaceNets(const Field& fIn, const AABB& box, const MeshOptions& o
                                 float a = cv[ed[0]], b = cv[ed[1]];
                                 if ((a < 0.0f) == (b < 0.0f)) continue;
                                 float t = a / (a - b);
-                                vec3 pa(float(corner[ed[0]][0]), float(corner[ed[0]][1]), float(corner[ed[0]][2]));
-                                vec3 pb(float(corner[ed[1]][0]), float(corner[ed[1]][1]), float(corner[ed[1]][2]));
+                                // Braces, not parentheses: clang reads `vec3 pa(float(...), ...)` as a
+                                // declaration of a function pa with parameters named after the
+                                // expressions ("redefinition of parameter 'corner'"), GCC as the
+                                // variable the line means. Braces are unambiguous for both.
+                                vec3 pa{float(corner[ed[0]][0]), float(corner[ed[0]][1]), float(corner[ed[0]][2])};
+                                vec3 pb{float(corner[ed[1]][0]), float(corner[ed[1]][1]), float(corner[ed[1]][2])};
                                 acc += lerp(pa, pb, t);
                                 ++cnt;
                             }

@@ -9,7 +9,9 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
 #include <xmmintrin.h>
+#endif
 
 namespace tts {
 namespace {
@@ -1282,6 +1284,8 @@ bool opDynamicQuantize(const ExecContext& ctx, const Tensor& x0, Tensor* out, st
     if (x.type != DType::F32) return fail(err, "DynamicQuantizeLinear expects float");
     const float* p = x.as<float>();
     int64_t n = x.count();
+    float mn = 0.0f, mx = 0.0f;
+#if defined(__SSE2__) || defined(_M_X64) || defined(__x86_64__)
     // minps/maxps(x, acc) select exactly as std::min/max(acc, x) do: a NaN never replaces acc and
     // -0 never replaces the +0 start, so lanes reduced in any order give the scalar loop's bits.
     __m128 mn0 = _mm_setzero_ps(), mn1 = mn0, mx0 = mn0, mx1 = mn0;
@@ -1296,7 +1300,6 @@ bool opDynamicQuantize(const ExecContext& ctx, const Tensor& x0, Tensor* out, st
     alignas(16) float lanes[8];
     _mm_store_ps(lanes, _mm_min_ps(mn0, mn1));
     _mm_store_ps(lanes + 4, _mm_max_ps(mx0, mx1));
-    float mn = 0.0f, mx = 0.0f;
     for (int l = 0; l < 4; ++l) {
         mn = std::min(mn, lanes[l]);
         mx = std::max(mx, lanes[4 + l]);
@@ -1305,6 +1308,13 @@ bool opDynamicQuantize(const ExecContext& ctx, const Tensor& x0, Tensor* out, st
         mn = std::min(mn, p[i]);
         mx = std::max(mx, p[i]);
     }
+#else
+    // No SSE2 (aarch64): the same reduction scalar, which the compiler vectorises on NEON.
+    for (int64_t i = 0; i < n; ++i) {
+        mn = std::min(mn, p[i]);
+        mx = std::max(mx, p[i]);
+    }
+#endif
     // An infinite bound (only a damaged model has one) gives no zero point: -inf makes it NaN,
     // which the cast to int below cannot take. The node fails, the line goes to subtitles.
     if (!std::isfinite(mn) || !std::isfinite(mx)) return fail(err, "DynamicQuantizeLinear: non-finite input range");

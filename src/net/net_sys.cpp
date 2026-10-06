@@ -2,6 +2,11 @@
 #include <cstdio>
 #include <cstdlib>
 
+#if defined(__ANDROID__)
+#include "../platform/platform_android.h"
+#include <cstring>
+#endif
+
 #ifdef _WIN32
 #include <io.h>
 #include <windows.h>
@@ -175,15 +180,42 @@ bool makeDirectories(const std::string& dir) {
 #else  // POSIX (Linux)
 
 std::string exeDirectory() {
+#ifdef __ANDROID__
+    // There is no executable folder to speak of (the APK's native libraries are read-only and the
+    // install is not portable): everything the game writes lives in the private data folder.
+    return android_plat::filesDir();
+#else
     char buf[PATH_MAX];
     ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
     if (n <= 0) return "./";
     buf[n] = 0;
     std::string s(buf);
     return s.substr(0, s.find_last_of('/') + 1);
+#endif
 }
 
+#ifdef __ANDROID__
+// The private folder the Java side handed over at start-up (platform_android.cpp). Android sets
+// neither HOME nor the XDG variables for an app process: they are only understood by the command
+// line tools, and the app sandbox (SE Linux plus a per-package uid) is what protects these files
+// from other applications, not their mode. The fallback is only reached by a mis-built APK.
+std::string androidFilesDir() {
+    const char* dir = getenv("SCACELITH_FILES_DIR");
+    if (!dir || !dir[0]) return "/data/local/tmp/scacelith/";
+    std::string d(dir);
+    if (d.back() != '/') d += '/';
+    return d;
+}
+#endif
+
 std::string userDataDirectory() {
+#ifdef __ANDROID__
+    // The settings, the log, the saved logins and the coach's voice model all live in the private
+    // files folder: the app sandbox keeps them from other applications, so the mode is the app's.
+    std::string d = androidFilesDir();
+    mkdir(d.c_str(), 0700);
+    return d;
+#else
     // The XDG base directory rule: $XDG_CONFIG_HOME when it is an absolute path (a relative one is
     // ignored), else ~/.config. Its scacelith folder is private (it holds the saved logins).
     const char* xdg = getenv("XDG_CONFIG_HOME");
@@ -197,9 +229,15 @@ std::string userDataDirectory() {
     std::string d = base + "scacelith/";
     mkdir(d.c_str(), 0700);
     return d;
+#endif
 }
 
 std::string appDataDirectory() {
+#ifdef __ANDROID__
+    // Same folder as the settings: one private place for the app (the downloaded voice model goes
+    // to its "coach" subfolder).
+    return userDataDirectory();
+#else
     const char* xdg = getenv("XDG_DATA_HOME");
     const char* home = getenv("HOME");
     std::string base;
@@ -209,6 +247,7 @@ std::string appDataDirectory() {
     std::string d = base + (base.back() == '/' ? "" : "/") + "scacelith/";
     makeDirectories(d);
     return d;
+#endif
 }
 
 bool fileExists(const std::string& path) {
@@ -257,6 +296,10 @@ bool removeFile(const std::string& path) { return unlink(path.c_str()) == 0; }
 
 bool openBrowser(const std::string& url) {
     if (url.compare(0, 8, "https://") != 0 && url.compare(0, 7, "http://") != 0) return false;
+#ifdef __ANDROID__
+    // No xdg-open and no fork+exec an app may use: the platform layer starts an ACTION_VIEW intent.
+    return android_plat::openUrl(url);
+#else
     pid_t pid;
     char* argv[] = {const_cast<char*>("xdg-open"), const_cast<char*>(url.c_str()), nullptr};
     if (posix_spawnp(&pid, "xdg-open", nullptr, nullptr, argv, environ) != 0) return false;
@@ -264,6 +307,7 @@ bool openBrowser(const std::string& url) {
     int status = 0;
     waitpid(pid, &status, 0);
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#endif
 }
 
 std::FILE* openFile(const std::string& path, const char* mode) {

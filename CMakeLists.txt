@@ -174,6 +174,10 @@ file(GLOB_RECURSE GAME_SOURCES CONFIGURE_DEPENDS
     ${ROOT}/src/character/*.cpp ${ROOT}/src/anim/*.cpp ${ROOT}/src/ui/*.cpp ${ROOT}/src/game/*.cpp
     ${ROOT}/src/app/*.cpp)
 list(REMOVE_ITEM GAME_SOURCES ${GAME_CORE_SOURCES})
+# src/gl/gl46_gles.cpp is the Android-only GL ES 3.2 layer: nothing on a desktop build defines
+# SCACELITH_GLES, so the file is an empty translation unit there. Leave it out rather than compile
+# it for nothing (the tests build it themselves, against a fake libGLESv2: see below).
+list(REMOVE_ITEM GAME_SOURCES ${ROOT}/src/gl/gl46_gles.cpp)
 set(GAME_EXTRA)
 if(WIN32)
     # The icon, the version resource and the manifest, with the version of cmake/version.cmake.
@@ -204,12 +208,24 @@ else()
     # and libgcc are linked in (their versions differ between distributions, glibc's are
     # backward-compatible), and it is stripped like the Windows one.
     target_link_options(scacelith PRIVATE "$<$<CONFIG:Release>:-static-libgcc;-static-libstdc++;-s>")
+    # The Android renderer on the desktop: the same sources built as the Android build builds them
+    # (SCACELITH_GLES: GLSL ES 3.20 shaders, the DSA emulation of src/gl/gl46_gles.cpp), on an
+    # OpenGL ES 3.2 context of the desktop driver (GLX_EXT_create_context_es_profile). A way to see
+    # the ES path draw without a device: `ninja scacelith_gles` (not part of the default build).
+    add_executable(scacelith_gles EXCLUDE_FROM_ALL ${ROOT}/src/main.cpp ${GAME_SOURCES} ${ROOT}/src/gl/gl46_gles.cpp)
+    target_compile_definitions(scacelith_gles PRIVATE SCACELITH_GLES=1)
+    target_compile_options(scacelith_gles PRIVATE ${COMMON_WARNINGS} ${OPT_FLAGS})
+    target_link_libraries(scacelith_gles PRIVATE scacelith_core X11 GL dl)
 endif()
 
 # ---------------------------------------------------------------------------------------------
 # Unit tests (no GPU): tests/*.cpp linked against the core modules. Run: ./scacelith_tests
 # ---------------------------------------------------------------------------------------------
 file(GLOB TEST_SOURCES CONFIGURE_DEPENDS ${ROOT}/tests/*.cpp)
+# The fake libGLESv2 of the GL ES compatibility layer's tests (see below): it is a library of its
+# own, not a test file. It exports the classic ES entry points, and src/gl/gl46.cpp defines the
+# gl46 globals under the same names, so compiling it into the test binary would be a name clash.
+list(REMOVE_ITEM TEST_SOURCES ${ROOT}/tests/gles_fake.cpp)
 if(TEST_SOURCES)
     add_executable(scacelith_tests ${TEST_SOURCES})
     # The shader preprocessor's tests: shader.cpp needs the GL entry points only to link (they
@@ -223,6 +239,32 @@ if(TEST_SOURCES)
                    ${ROOT}/src/scene/piece_profile.cpp ${ROOT}/src/scene/sdf_mesher.cpp)
     target_compile_options(scacelith_tests PRIVATE ${COMMON_WARNINGS} ${OPT_FLAGS})
     target_link_libraries(scacelith_tests PRIVATE scacelith_core)
+    # The Android touch gesture machine (src/platform/touch_input.cpp) is platform-neutral -- it
+    # reads plat::TouchEvent and writes plat::Input, with no Android header in sight -- so its tests
+    # (tests/touch_input_tests.cpp) run on the desktop like any other.
+    target_sources(scacelith_tests PRIVATE ${ROOT}/src/platform/touch_input.cpp)
+    # The GL ES 3.2 compatibility layer (src/gl/gl46_gles.cpp) is Android-only code -- the desktop
+    # builds never define SCACELITH_GLES -- but what it does is platform-neutral bookkeeping, and a
+    # machine that can run no device and no emulator (no /dev/kvm, x86-64 system images only) has
+    # no other way to exercise it. tests/gles_tests.cpp runs it against the fake libGLESv2 that
+    # tests/gles_fake.cpp builds, which the layer loads through SCACELITH_GLES_LIBRARY.
+    if(NOT WIN32)
+        add_library(gles_fake SHARED ${ROOT}/tests/gles_fake.cpp)
+        target_compile_options(gles_fake PRIVATE ${COMMON_WARNINGS} ${OPT_FLAGS})
+        target_include_directories(gles_fake SYSTEM PRIVATE ${ROOT}/third_party/khronos)
+        target_sources(scacelith_tests PRIVATE ${ROOT}/src/gl/gl46_gles.cpp)
+        # Only that one source file is built as the ES layer: SCACELITH_GLES also tells
+        # src/render/shader.cpp which #version to emit, and the shader tests want the desktop one.
+        set_property(SOURCE ${ROOT}/src/gl/gl46_gles.cpp TARGET_DIRECTORY scacelith_tests
+                     PROPERTY COMPILE_DEFINITIONS SCACELITH_GLES=1)
+        target_compile_definitions(scacelith_tests PRIVATE SCACELITH_GLES_TESTS=1)
+        # The fake's absolute path, for tests/gles_tests.cpp to hand the layer: a generated header,
+        # because a compile definition cannot carry a path without the quoting getting in the way.
+        # (It goes into the generated/ directory scacelith_core already puts on the include path.)
+        file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/gles_fake_path.h
+             CONTENT "#define SCACELITH_GLES_FAKE_LIB \"$<TARGET_FILE:gles_fake>\"\n")
+        target_link_libraries(scacelith_tests PRIVATE gles_fake)
+    endif()
     if(WIN32)
         target_link_options(scacelith_tests PRIVATE -static -static-libgcc -static-libstdc++)
     endif()

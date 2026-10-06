@@ -5,6 +5,11 @@
 #if defined(_WIN32)
 #include <windows.h>
 #include <bcrypt.h>
+#elif defined(__ANDROID__)
+// Android: the NDK ships neither OpenSSL nor BCrypt, and the game only needs the standard
+// primitives (SHA-256/1, HMAC, HKDF, the random source), so they are implemented in
+// src/net/crypto_portable.cpp. Same behaviour, same test vectors.
+#include "crypto_portable.h"
 #else
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -46,6 +51,10 @@ public:
 #if defined(_WIN32)
         ok_ = sha256Provider() && BCryptCreateHash(sha256Provider(), &prefix_, nullptr, 0, nullptr, 0, 0) == 0 &&
               BCryptHashData(prefix_, (PUCHAR)prefix.data(), ULONG(prefix.size()), 0) == 0;
+#elif defined(__ANDROID__)
+        portable::sha256Init(prefix_);
+        portable::sha256Update(prefix_, prefix.data(), prefix.size());
+        ok_ = true;
 #else
         prefix_ = EVP_MD_CTX_new();
         work_ = EVP_MD_CTX_new();
@@ -56,6 +65,8 @@ public:
     ~PrefixHasher() {
 #if defined(_WIN32)
         if (prefix_) BCryptDestroyHash(prefix_);
+#elif defined(__ANDROID__)
+        // no state to free
 #else
         EVP_MD_CTX_free(prefix_);
         EVP_MD_CTX_free(work_);
@@ -72,6 +83,11 @@ public:
         bool ok = BCryptHashData(w, (PUCHAR)suffix, ULONG(n), 0) == 0 && BCryptFinishHash(w, out.data(), 32, 0) == 0;
         BCryptDestroyHash(w);
         return ok;
+#elif defined(__ANDROID__)
+        portable::Sha256State copy = prefix_;
+        portable::sha256Update(copy, suffix, n);
+        portable::sha256Final(copy, out.data());
+        return true;
 #else
         unsigned len = 0;
         return EVP_MD_CTX_copy_ex(work_, prefix_) == 1 && EVP_DigestUpdate(work_, suffix, n) == 1 &&
@@ -83,6 +99,8 @@ private:
     bool ok_ = false;
 #if defined(_WIN32)
     BCRYPT_HASH_HANDLE prefix_ = nullptr;
+#elif defined(__ANDROID__)
+    portable::Sha256State prefix_;
 #else
     EVP_MD_CTX* prefix_ = nullptr;
     EVP_MD_CTX* work_ = nullptr;
@@ -164,6 +182,8 @@ size_t decimal(uint64_t v, char* buf) {
 const char* backendName() {
 #if defined(_WIN32)
     return "bcrypt";
+#elif defined(__ANDROID__)
+    return "portable";
 #else
     return "openssl";
 #endif
@@ -173,6 +193,8 @@ Sha256 sha256(const void* data, size_t n) {
     Sha256 out{};
 #if defined(_WIN32)
     bcryptDigest(sha256Provider(), data, n, out.data(), 32);
+#elif defined(__ANDROID__)
+    portable::sha256(data, n, out.data());
 #else
     unsigned len = 0;
     EVP_Digest(data, n, out.data(), &len, EVP_sha256(), nullptr);
@@ -191,6 +213,12 @@ struct Sha256Stream::State {
         if (h) BCryptDestroyHash(h);
         h = nullptr;
     }
+};
+#elif defined(__ANDROID__)
+struct Sha256Stream::State {
+    portable::Sha256State st;
+    void open() { portable::sha256Init(st); }
+    void close() {}
 };
 #else
 struct Sha256Stream::State {
@@ -225,6 +253,8 @@ void Sha256Stream::update(const void* data, size_t n) {
         p += k;
         n -= k;
     }
+#elif defined(__ANDROID__)
+    portable::sha256Update(st_->st, data, n);
 #else
     if (st_->ctx) EVP_DigestUpdate(st_->ctx, data, n);
 #endif
@@ -234,6 +264,8 @@ Sha256 Sha256Stream::finish() {
     Sha256 out{};
 #if defined(_WIN32)
     if (st_->h) BCryptFinishHash(st_->h, out.data(), 32, 0);
+#elif defined(__ANDROID__)
+    portable::sha256Final(st_->st, out.data());
 #else
     unsigned len = 0;
     if (st_->ctx) EVP_DigestFinal_ex(st_->ctx, out.data(), &len);
@@ -246,6 +278,8 @@ Sha1 sha1(const void* data, size_t n) {
     Sha1 out{};
 #if defined(_WIN32)
     bcryptDigest(sha1Provider(), data, n, out.data(), 20);
+#elif defined(__ANDROID__)
+    portable::sha1(data, n, out.data());
 #else
     unsigned len = 0;
     EVP_Digest(data, n, out.data(), &len, EVP_sha1(), nullptr);
@@ -257,6 +291,8 @@ bool randomBytes(void* out, size_t n) {
     if (n == 0) return true;
 #if defined(_WIN32)
     return BCryptGenRandom(nullptr, static_cast<PUCHAR>(out), ULONG(n), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0;
+#elif defined(__ANDROID__)
+    return portable::randomBytes(out, n);
 #else
     return RAND_bytes(static_cast<unsigned char*>(out), int(n)) == 1;
 #endif

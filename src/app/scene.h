@@ -17,6 +17,9 @@ struct AppContext {
     float clockDt = 0.0f;
     float fixedTime = -1.0f;       // --time: start time for deterministic scenes
     std::vector<std::string> args; // raw command line (scenes may parse extra options)
+    // Per-frame stage timings (the Android loop logs them; the desktop keeps them at zero).
+    double drawMs = 0.0;           // render + renderOverlay of this frame
+    double swapMs = 0.0;           // swapBuffers of this frame (the vsync/GPU wait included)
     bool hasArg(const std::string& a) const;
     std::string argValue(const std::string& a, const std::string& def = "") const;
 };

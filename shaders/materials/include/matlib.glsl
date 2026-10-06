@@ -31,6 +31,9 @@ vec4 mat_hash4(float seed) {
 // ---------------------------------------------------------------------------------------------
 // Periodic quintic gradient noise, ~[-1,1]. 'per' = lattice period (cells) per axis.
 float mat_gnoise(vec3 p, vec3 per) {
+#ifdef DBG_NO_NOISE
+    return 0.0;
+#endif
     vec3 i = floor(p), f = fract(p);
     vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
     vec3 i0 = mod(i, per), i1 = mod(i + 1.0, per);

@@ -5,6 +5,75 @@ royal hall, against a porcelain robot driven by Stockfish. Everything is rendere
 engine written for this game on OpenGL 4.6 (no third-party engine): procedural geometry,
 real-time material shaders, physically based lighting.
 
+## This fork: the Android version, and a lighter renderer
+
+This repository is a fork of [DarkCenobyte/scacelith-chess](https://github.com/DarkCenobyte/scacelith-chess)
+that adds an **Android** version of the game and a **simple renderer** that keeps modest machines
+fluid. Its [releases](https://github.com/doctormajid7-ux/scacelith-chess-android/releases) hold the
+Android APK next to the Windows and Linux builds.
+
+### Android (arm64-v8a)
+
+The whole game, from the same sources as the desktop one: the hall, the robot, Stockfish 19, the
+coach and its voice.
+
+- **Requirements**: Android 8 or later, a 64-bit ARM phone or tablet with an OpenGL ES 3.2 GPU.
+  Tested on a Snapdragon 8 Elite Gen 5 (Adreno 840): 60 to 100+ FPS at the screen's full
+  resolution, with a 120 Hz display mode requested.
+- **Installing**: download `Scacelith-<version>-android-arm64.apk` from the releases and open it
+  (allow installing apps from that source). It is about 250 MB: Stockfish's neural network is
+  embedded. The app asks for one permission only, the network.
+- **Stockfish 19** is built in for arm64 (armv8 and armv8-dotprod, chosen at run time), its NNUE
+  network included: every difficulty level plays as on the desktop.
+- **The spoken coach**: the voice model (Supertonic 3, ~139 MB) downloads from within the game
+  over HTTPS (Android's own TLS stack), and the speech is synthesised on the phone (portable
+  kernels, vectorised for ARM NEON, checked against the x86 ones by the desktop tests).
+- **Touch controls**, chosen in Options > Game > Touch control:
+  - *Touchpad (arrow)*, the default: the finger moves an arrow, a tap clicks where the arrow is, a
+    still long press holds the button (to carry a piece); gliding never presses.
+  - *Direct (finger)*: the finger is the pointer: tap a piece, then its square (or drag it).
+  - In both: two fingers look around, a pinch leans in or out, a two-finger tap presses the chess
+    clock, a three-finger tap opens the menu.
+  - A strip of buttons gives the keys a touchscreen has no gesture for: menu, chess clock, move
+    list, look at the board, scoresheet, take back, confirm, keyboard.
+- **Options for a phone**: the simple renderer (below), the render scale, and the **text size**
+  of the interface (Options > Display, 80 to 160 %, 120 % by default on Android).
+- **Not on Android yet**: live online games and direct matches (no WebSocket client and no
+  AES-GCM / ECDH on this build yet). Single player, the coach, two players on one device and the
+  observer mode all work.
+
+The port in short: OpenGL ES 3.2 instead of OpenGL 4.6 (the renderer's direct state access is
+emulated in `src/gl/gl46_gles.cpp`, the shaders are emitted as GLSL ES 3.20), AAudio for the
+sound, a JNI bridge to `HttpURLConnection` for HTTPS (`src/net/transport_android.cpp`). Building
+it: see [Android](#android) below and `docs/ANDROID.md`.
+
+### The simple renderer (all platforms, on by default)
+
+The original renderer is demanding (procedural materials evaluated for every pixel, screen-space
+reflections, volumetric light, a compute post-processing chain). This fork adds a light one and
+**makes it the default on Windows and Linux too**, so the game runs well on modest configurations
+(integrated graphics, a GTX 1050) as well as on phones. The full renderer is one switch away:
+Options > Graphics > Simple renderer.
+
+The simple renderer draws the scene in one forward pass with the sun and its shadow, the light
+probes and a plain tone mapping, and has its own switches in Options > Graphics:
+
+| Option | What it does | Default |
+|---|---|---|
+| Material textures | *Plain* colours, *Baked* (each material's real procedural surface computed once at load into textures: marble veins, stone, wood, tapestry), or *Full* (procedural per pixel, demanding) | Baked |
+| Indirect lighting | the light the sun bounces around the hall, and its soft reflections | On |
+| Anti-aliasing (MSAA) | 4x multisampling | On (desktop), off (Android) |
+
+### Other changes in this fork
+
+- **The chess clock's display has a soft backlight**: its digits stay readable when it stands in
+  the robot's shadow (playing Black).
+- **Linux, laptops with two GPUs**: the game asks for NVIDIA's PRIME render offload by itself when
+  the NVIDIA driver is loaded (as `prime-run` does) and falls back to the integrated GPU when the
+  offload is unavailable; `SCACELITH_INTEGRATED_GPU=1` keeps the integrated one.
+- `scacelith_gles` (`ninja -C build scacelith_gles`, Linux): the Android renderer built for the
+  desktop on an OpenGL ES 3.2 context, to check the ES path without a device.
+
 ## Installing
 
 The [releases](https://github.com/DarkCenobyte/scacelith-chess/releases) hold the game for Windows
@@ -327,7 +396,18 @@ ninja -C build
 
 # The Windows tests under Wine (ninja -C build-win scacelith_tests first)
 tools/test_win.sh             # [filter-substring]
+
+# Android (arm64-v8a, NDK 27.2.12479018, JDK 17, Gradle 8.13; no wrapper in the repository):
+# the optimized APK, signed with the debug key so it installs as is
+cd android && ANDROID_HOME=$HOME/android-sdk JAVA_HOME=/usr/lib/jvm/java-17-openjdk \
+    gradle --no-daemon assembleRelease   # -> app/build/outputs/apk/release/app-release.apk
 ```
+
+<a id="android"></a>The Android target is a port of the same sources, not a second program: OpenGL ES 3.2 instead of
+OpenGL 4.6 (the renderer's direct state access is emulated in `src/gl/gl46_gles.cpp`), GLSL ES
+3.20 instead of 4.60, AAudio instead of WASAPI or ALSA, Stockfish compiled for arm64, HTTPS through
+Java. Build the release variant: the debug one compiles the game without optimisation (several
+times slower). `docs/ANDROID.md` has the details.
 
 Wine names the Linux files in the character set of the host locale: in the POSIX locale (`LANG`
 unset, common in containers) that is ASCII, a file named after "Élodie" cannot be created and the

@@ -18,7 +18,9 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include <immintrin.h>
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
+#include <immintrin.h>   // the trait of a non-x86 unit uses its own (NEON) intrinsics instead
+#endif
 
 namespace {
 
@@ -358,6 +360,7 @@ inline void kPackIntA16(const uint8_t* A, ptrdiff_t lda, int rows, int K, bool i
 }
 
 // Two rows of 8 bytes widened to int16 (zero point removed) and interleaved: 8 (k0, k1) pairs.
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
 inline void widenPair8(const uint8_t* r0, const uint8_t* r1, bool isUnsigned, int zp, int16_t* d) {
     long long a, b;
     __builtin_memcpy(&a, r0, 8);
@@ -374,6 +377,14 @@ inline void widenPair8(const uint8_t* r0, const uint8_t* r1, bool isUnsigned, in
     _mm_storeu_si128(reinterpret_cast<__m128i*>(d), _mm_unpacklo_epi16(x, y));
     _mm_storeu_si128(reinterpret_cast<__m128i*>(d + 8), _mm_unpackhi_epi16(x, y));
 }
+#else
+inline void widenPair8(const uint8_t* r0, const uint8_t* r1, bool isUnsigned, int zp, int16_t* d) {
+    for (int j = 0; j < 8; ++j) {   // non-x86 units (kernels_portable.cpp): plain loops
+        d[2 * j] = widen(r0[j], isUnsigned, zp);
+        d[2 * j + 1] = widen(r1[j], isUnsigned, zp);
+    }
+}
+#endif
 
 template <class V, int NR>
 void kPackIntB16(const uint8_t* B, ptrdiff_t ldb, int K, int cols, bool isUnsigned, int zp, void* Bp) {
@@ -434,6 +445,7 @@ inline void kPackIntA8(const uint8_t* A, ptrdiff_t lda, int rows, int K, bool, i
 }
 
 // Four rows of 16 bytes interleaved: 16 groups of (k0, k1, k2, k3).
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
 inline void interleave4x16(const uint8_t* r0, const uint8_t* r1, const uint8_t* r2, const uint8_t* r3, uint8_t* d) {
     __m128i a = _mm_loadu_si128(reinterpret_cast<const __m128i*>(r0));
     __m128i b = _mm_loadu_si128(reinterpret_cast<const __m128i*>(r1));
@@ -447,6 +459,16 @@ inline void interleave4x16(const uint8_t* r0, const uint8_t* r1, const uint8_t* 
     _mm_storeu_si128(o + 2, _mm_unpacklo_epi16(ab1, ce1));
     _mm_storeu_si128(o + 3, _mm_unpackhi_epi16(ab1, ce1));
 }
+#else
+inline void interleave4x16(const uint8_t* r0, const uint8_t* r1, const uint8_t* r2, const uint8_t* r3, uint8_t* d) {
+    for (int j = 0; j < 16; ++j) {   // non-x86 units: plain loops
+        d[4 * j] = r0[j];
+        d[4 * j + 1] = r1[j];
+        d[4 * j + 2] = r2[j];
+        d[4 * j + 3] = r3[j];
+    }
+}
+#endif
 
 template <class V, int NR>
 void kPackIntB8(const uint8_t* B, ptrdiff_t ldb, int K, int cols, bool, int, void* Bp) {

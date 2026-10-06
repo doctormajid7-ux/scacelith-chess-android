@@ -85,6 +85,10 @@ struct TextStyle {
                                // the text contains right-to-left script, else first strong
                                // character), 0 LTR, 1 RTL
 };
+// The interface's text size (Options > Display): every text but the page-sized titles and the
+// handwriting is drawn and measured k times larger (0.8 - 1.6).
+void setTextScale(float k);
+float textScale();
 float textWidth(const std::string& s, const TextStyle& st);
 // Font size that fits s in maxWidth (never below minScale * st.size).
 float fitSize(const std::string& s, const TextStyle& st, float maxWidth, float minScale = 0.7f);

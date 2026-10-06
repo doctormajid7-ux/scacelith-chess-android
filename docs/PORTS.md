@@ -1,6 +1,8 @@
 # Later ports: AppImage, Linux aarch64, macOS
 
-**Status: research only, nothing shipped.** Version 1.0.0-beta.2 releases the Linux x86-64 client
+**Status: research only, nothing shipped** — except Android, which is built and documented
+separately in [ANDROID.md](ANDROID.md): the arm64 notes below (x86-only `SF_ISA_*` flags, x86-only
+TTS kernels, `DenormalGuard` a no-op) are the ones that port turned out to need. Version 1.0.0-beta.2 releases the Linux x86-64 client
 as a `.tar.gz` archive (see the README). This document keeps what was found while preparing the
 other targets, so that the work can start from it.
 
@@ -55,11 +57,20 @@ other targets, so that the work can start from it.
 
 **What does not build or run today**
 - Stockfish: `SF_ALL_VARIANTS` (`third_party/stockfish/CMakeLists.txt`) and the `SF_ISA_*` flags are
-  x86-64 only (`-msse2`, `-mavx2`...: the cross build stops on all five variants). Stockfish 19 has
-  ARM targets (armv8: NEON; armv8-dotprod: `-march=armv8.2-a+dotprod`, NEON dot product); the
-  runtime choice would read `getauxval(AT_HWCAP) & HWCAP_ASIMDDP`. The variant isolation
-  (`cmake/isolate.cmake`) is ELF-generic; the instruction-set audit (`tools/isa_audit.py`) is x86
-  only and must be skipped or adapted.
+  x86-64 only (`-msse2`, `-mavx2`...: the cross build stops on all five variants). The Android port
+  has closed this gap for its toolchain and is the recipe to port here: two variants (`armv8`,
+  `armv8-dotprod` with `-march=armv8.2-a+dotprod`), isolated by
+  `third_party/stockfish/cmake/isolate_llvm.cmake` (written for the NDK's LLVM tools — lld, no
+  `--force-group-allocation` — and verified to work with them), dispatched on
+  `getauxval(AT_HWCAP) & HWCAP_ASIMDDP` by `scacelith/cpu_arm64.cpp` (the counterpart of
+  `scacelith/cpu.cpp`), with the arm64 audit `cmake/isa_check_arm64.cmake` in the place of the x86
+  `tools/isa_audit.py` and the NNUE network embedded. The cross build needs the same block adapted
+  to a GNU aarch64 toolchain (the desktop `isolate.cmake` already handles ELF with binutils; pick
+  the flags and the dispatcher from the Android CMakeLists).
+- TTS: the kernels are SSE2/AVX2/AVX-VNNI/AVX-512 (`src/tts/kernels_*.cpp`), the dispatch reads
+  cpuid (`src/tts/cpu.cpp`) and `src/tts/threads.cpp` uses `_mm_getcsr` unconditionally; a NEON or
+  portable kernel set and an aarch64 dispatch are needed, and the TTS instruction-set audit in
+  `CMakeLists.txt` is x86 only.
 - TTS: the kernels are SSE2/AVX2/AVX-VNNI/AVX-512 (`src/tts/kernels_*.cpp`), the dispatch reads
   cpuid (`src/tts/cpu.cpp`) and `src/tts/threads.cpp` uses `_mm_getcsr` unconditionally; a NEON or
   portable kernel set and an aarch64 dispatch are needed, and the TTS instruction-set audit in
@@ -77,11 +88,19 @@ Not possible as a build job alone; it is a port:
   (post-processing, probes), direct state access, SSBOs, image load/store, `glClipControl`, texture
   views and multi-draw indirect: a Metal renderer (or a GL-on-Metal translation layer) is needed.
 - No Cocoa platform layer (window, GL context, input, high DPI) and no CoreAudio backend.
-- The Stockfish variant isolation handles ELF and PE only, and the build requires GNU binutils;
-  macOS uses Mach-O and Apple's linker. OpenSSL is not part of macOS.
+- The Stockfish variant isolation handles ELF and PE with GNU binutils, and ELF with LLVM's tools
+  (`cmake/isolate_llvm.cmake`, written for the Android NDK); macOS uses Mach-O and Apple's linker,
+  for which there is no equivalent. OpenSSL is not part of macOS.
 - Distribution needs Developer ID signing and notarization (a paid Apple account and repository
   secrets).
 - The icon for it: `res/icons/png/scacelith-1024.png` and the smaller PNGs make the `.icns` with
   `iconutil -c icns` (iconset: `icon_16x16` = 16, `@2x` = 32, `icon_32x32` = 32, `@2x` = 64,
   `icon_128x128` = 128, `@2x` = 256, `icon_256x256` = 256, `@2x` = 512, `icon_512x512` = 512,
   `@2x` = 1024).
+
+## Android (arm64-v8a)
+
+Done: see [ANDROID.md](ANDROID.md). The AI opponent is embedded (one armv8/NEON variant of
+Stockfish 19, the NNUE network embedded, verified at build level — never run on a device). The
+gaps left there are named and scoped — the network's TLS, the direct match's cipher operations and
+the TTS kernels — and the aarch64 section above holds the groundwork for the last one.

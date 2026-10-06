@@ -32,8 +32,10 @@ under the Open Database License (ODbL).
 |---|---|
 | `CMakeLists.txt` | Static library `stockfish_embedded`: all upstream sources except `src/main.cpp` and `src/universal/` (upstream's own multi-architecture build), once per instruction-set variant |
 | `cmake/isolate.cmake` | Makes each variant one object with three global symbols, and verifies it |
+| `cmake/isolate_llvm.cmake` | The same for an LLVM toolchain (no GNU binutils): the Android build's isolation |
 | `scacelith/entry.cpp` | `scacelith_sf_main_<tag>()` (one per variant, e.g. `_x86_64_avx2`): the body of upstream `main()` as a function, with a fixed command line |
 | `scacelith/cpu.cpp` | The dispatcher: chooses the variant for the CPU, runs its static initialisers, calls its entry point |
+| `scacelith/cpu_arm64.cpp` | The dispatcher of the Android (arm64) build: armv8 and armv8-dotprod, `getauxval(AT_HWCAP)` (below) |
 | `scacelith/nnue_incbin.cpp` | The network, embedded once for all variants |
 | `scacelith/local_shm.h` | Replaces upstream `src/shm.h`: the network stays in process memory (forced include) |
 | `scacelith/win_shims.h` | Windows: redirects `GetNumaProcessorNodeEx` (Wine) and the console code page calls (forced include) |
@@ -427,3 +429,38 @@ presets their estimates: Novice (S0 d1, MPV 7, classical eval) 750-840, Beginner
 
 These are engine ratings on Stockfish's CCRL-anchored scale; human (FIDE or online) ratings are
 not the same scale, so the labels are approximate by nature.
+
+## Android (arm64-v8a)
+
+The Android port (`docs/ANDROID.md`) embeds the same engine with one change of shape, built by the
+Android build's own CMakeLists (`android/app/src/main/cpp/CMakeLists.txt`), not by this one:
+
+* **Two variants, `armv8` and `armv8-dotprod`** (upstream's `ARCH=armv8` and `ARCH=armv8-dotprod`:
+  baseline AArch64 with NEON, and `-march=armv8.2-a+dotprod -DUSE_NEON_DOTPROD` on top). NEON and
+  POPCNT are what the arm64-v8a ABI guarantees; FEAT_DOTPROD is not, and the linker would merge
+  the standard-library copies both variants compile — so the desktop's machinery carries over:
+  each variant is isolated by `cmake/isolate_llvm.cmake`, the LLVM-toolchain counterpart of
+  `cmake/isolate.cmake` (the NDK has lld and llvm-objcopy, no GNU binutils), and
+  `cmake/isa_check_arm64.cmake` checks the result where the desktop audits with
+  `tools/isa_audit.py` (no `sdot`/`udot` in the baseline, at least one in the dotprod variant).
+* **Clang's two flag adaptations** (the NDK toolchain is clang): `-fconstexpr-steps=500000000`
+  instead of GCC's `-fconstexpr-ops-limit`, and no `-fno-ipa-cp-clone`, which clang does not know.
+* **The dispatcher is `scacelith/cpu_arm64.cpp`**, the counterpart of `scacelith/cpu.cpp`: a
+  variant table, the CPU check `getauxval(AT_HWCAP) & HWCAP_ASIMDDP` (the bit upstream's own
+  `universal/entry_arm64.cpp` tests), `std::call_once` running the chosen variant's initialisers
+  from its `sfinit_<tag>` table, and `engine.arch` accepting `auto`, `armv8` or `armv8-dotprod`
+  (an x86 name left over in a copied `Scacelith.ini` is refused and logged by the caller, never
+  fatal). The initialisers are not run at library load: the isolation moves them out of
+  `.init_array`, and the dispatcher runs those of the chosen variant, exactly as `cpu.cpp` does.
+* Everything else is byte-identical to this build: the upstream sources, `entry.cpp`,
+  `local_shm.h` (the network stays in process memory), `nnue_incbin.cpp` — whose `.incbin` is
+  resolved by clang's integrated assembler (`-Wa,-I<this>/src`; the NDK ships no binutils) — and
+  the game side (`src/ai/uci_host.cpp`).
+* Verified at build level only: the `.so` of both APKs holds the 98,511,183 network bytes at
+  `gEmbeddedNNUEData` (hashing to the network's sha256), both entry points (`scacelith_sf_main_armv8`,
+  `scacelith_sf_main_armv8_dotprod`), the dotprod code (184 `sdot`/`udot` in the release build),
+  the two `sfinit` tables with their run-time relocations, and no variant symbol beyond the three
+  each isolation keeps global. No
+  engine move has been searched on arm64: no device was available, so the arm64 node rate, the
+  dotprod dispatch on real hardware and the
+  presets' Elo mapping there are unmeasured.

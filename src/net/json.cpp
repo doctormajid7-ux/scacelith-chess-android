@@ -1,7 +1,10 @@
 #include "json.h"
+#include <cerrno>
 #include <charconv>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <unordered_map>
 
 namespace net {
@@ -364,6 +367,23 @@ private:
         }
         // from_chars is locale-independent and exact; a magnitude beyond double becomes +-inf.
         double v = 0;
+#if defined(__ANDROID__)
+        // The NDK's libc++ deletes the floating-point overload of from_chars. strtod is exact too,
+        // and the game never calls setlocale: the C locale's decimal point is '.', so a JSON
+        // number parses the same here as on the desktop builds.
+        {
+            std::string text(s_ + start, s_ + p_);
+            errno = 0;
+            char* end = nullptr;
+            v = std::strtod(text.c_str(), &end);
+            if (end != text.c_str() + text.size()) return fail("invalid number");
+            if (errno == ERANGE) {
+                if (v != 0.0) v = s_[start] == '-' ? -HUGE_VAL : HUGE_VAL;   // overflow
+                else if (s_[start] == '-') v = -0.0;                         // underflow keeps the sign
+            }
+        }
+        out = Value(v);
+#else
         auto r = std::from_chars(s_ + start, s_ + p_, v);
         if (r.ec != std::errc() || r.ptr != s_ + p_) {
             if (r.ec != std::errc::result_out_of_range) return fail("invalid number");
@@ -376,6 +396,7 @@ private:
                 }
         }
         out = Value(v);
+#endif
         return true;
     }
 };

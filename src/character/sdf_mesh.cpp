@@ -228,7 +228,20 @@ void surfaceFrames(MeshData& mesh, const Fn& f, const MeshOptions& o) {
     }
 }
 
-MeshData meshSegment(const Fn& f, vec3 a, vec3 b, const MeshOptions& o, vec3 poleAxis) {
+MeshData meshSegment(const Fn& f, vec3 a, vec3 b, const MeshOptions& oIn, vec3 poleAxis) {
+#ifdef __ANDROID__
+    // Phones: a coarser robot (fewer triangles to draw every frame in every pass, and a load that
+    // does not take half a minute). The tolerances, not the shapes: the joints and the grip keep
+    // their geometry within a fraction of a millimetre.
+    MeshOptions o = oIn;
+    o.maxDeviation *= 3.0f;
+    o.maxAngleDeg *= 1.5f;
+    o.maxEdge *= 1.5f;
+    o.nu = std::max(16, o.nu * 2 / 3);
+    o.nv = std::max(16, o.nv * 2 / 3);
+#else
+    const MeshOptions& o = oIn;
+#endif
     vec3 ab = b - a;
     float L = length(ab);
     vec3 w = L > 1e-6f ? ab / L : normalize(poleAxis);

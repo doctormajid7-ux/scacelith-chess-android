@@ -3,8 +3,10 @@
 // towards darker exposure when the scene gets brighter). Clears the histogram for the next frame.
 #include "shaders/post/post_common.glsl"
 layout(local_size_x = 256) in;
-layout(std430, binding = 5) buffer Histogram { uint bins[256]; };
-layout(binding = 0, rgba32f) uniform image2D ioExposure;  // x adapted EV, y target EV, z mean log2 lum, w valid
+// 'state' keeps a copy of the exposure the image holds: the previous frame's value is read from
+// there, because GL ES allows no read-write rgba32f image (only r32 formats may be both).
+layout(std430, binding = 5) buffer Histogram { uint bins[256]; vec4 state; };
+layout(binding = 0, rgba32f) uniform writeonly image2D oExposure;  // x adapted EV, y target EV, z mean log2 lum, w valid
 shared uint sBins[256];
 const float LOW_PERCENT = 0.45, HIGH_PERCENT = 0.96;
 
@@ -31,11 +33,12 @@ void main() {
     }
     float meanLog = cnt > 0.0 ? sum / cnt : log2(post.expoB.z);
     float target = clamp(log2(post.expoB.z) - meanLog, post.expo.z, post.expo.w);
-    vec4 prev = imageLoad(ioExposure, ivec2(0));
+    vec4 prev = state;
     float adapted = target;
     if (post.expoB.w > 0.5 && !isnan(prev.x) && !isinf(prev.x)) {
         float speed = target > prev.x ? post.expoB.x : post.expoB.y;
         adapted = prev.x + (target - prev.x) * (1.0 - exp(-post.timing.x * speed));
     }
-    imageStore(ioExposure, ivec2(0), vec4(adapted, target, meanLog, 1.0));
+    state = vec4(adapted, target, meanLog, 1.0);
+    imageStore(oExposure, ivec2(0), state);
 }

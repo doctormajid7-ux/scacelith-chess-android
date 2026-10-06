@@ -18,6 +18,16 @@ render::RenderSettings Settings::renderSettings() const {
     r.renderScale = std::clamp(renderScale, 0.5f, 2.0f);
     if (!motionBlur) r.motionBlur = false;
     if (!depthOfField) r.dof = false;
+    if (simpleRenderer) {
+        // The simple renderer draws none of these: do not allocate or bake them either.
+        r.simple = true;
+        r.planarReflections = r.ssr = r.volumetrics = r.taa = r.motionBlur = r.dof = r.ssao = false;
+        r.lightProbes = simpleIndirect;
+        r.probeResolution = 64;   // the probes' capture size; its bake runs once, at load
+        r.probeBounces = 1;
+        r.simpleMaterials = std::clamp(simpleMaterials, 0, 2);
+        r.simpleMsaa = simpleMsaa;
+    }
     return r;
 }
 
@@ -57,9 +67,16 @@ bool Settings::load(const std::string& p) {
     vsync = ini.getBool("display.vsync", vsync);
     renderScale = ini.getFloat("display.render_scale", renderScale);
     if (std::isnan(renderScale)) renderScale = 1.0f;  // passes std::clamp, then int(w * NaN) is undefined
+    textScale = ini.getFloat("display.text_scale", textScale);
+    if (std::isnan(textScale)) textScale = 1.0f;
+    textScale = std::clamp(textScale, 0.8f, 1.6f);
     quality = ini.getInt("graphics.quality", quality);
     motionBlur = ini.getBool("graphics.motion_blur", motionBlur);
     depthOfField = ini.getBool("graphics.depth_of_field", depthOfField);
+    simpleRenderer = ini.getBool("graphics.simple_renderer", simpleRenderer);
+    simpleMaterials = std::clamp(ini.getInt("graphics.simple_materials", simpleMaterials), 0, 2);
+    simpleIndirect = ini.getBool("graphics.simple_indirect", simpleIndirect);
+    simpleMsaa = ini.getBool("graphics.simple_msaa", simpleMsaa);
     brightness = ini.getFloat("graphics.brightness", brightness);
     // Absent from a file written before the calibration existed: its player has chosen already.
     brightnessCalibrated = ini.getBool("graphics.brightness_calibrated", true);
@@ -73,6 +90,7 @@ bool Settings::load(const std::string& p) {
     mouseSensitivity = ini.getFloat("gameplay.mouse_sensitivity", mouseSensitivity);
     invertLook = ini.getBool("gameplay.invert_look", invertLook);
     gameCursor = ini.getBool("gameplay.game_cursor", gameCursor);
+    touchDirect = ini.getBool("gameplay.touch_direct", touchDirect);
     autoPressClock = ini.getBool("gameplay.auto_press_clock", autoPressClock);
     ignoreOpponentHead = ini.getBool("gameplay.ignore_opponent_head", ignoreOpponentHead);
     nextColor = ini.getInt("gameplay.next_color", nextColor);
@@ -227,9 +245,14 @@ bool Settings::save() const {
     ini.setBool("display.fullscreen", fullscreen);
     ini.setBool("display.vsync", vsync);
     ini.setFloat("display.render_scale", renderScale);
+    ini.setFloat("display.text_scale", textScale);
     ini.setInt("graphics.quality", quality);
     ini.setBool("graphics.motion_blur", motionBlur);
     ini.setBool("graphics.depth_of_field", depthOfField);
+    ini.setBool("graphics.simple_renderer", simpleRenderer);
+    ini.setInt("graphics.simple_materials", simpleMaterials);
+    ini.setBool("graphics.simple_indirect", simpleIndirect);
+    ini.setBool("graphics.simple_msaa", simpleMsaa);
     ini.setFloat("graphics.brightness", brightness);
     ini.setBool("graphics.brightness_calibrated", brightnessCalibrated);
     ini.setFloat("audio.master_volume", masterVolume);
@@ -242,6 +265,7 @@ bool Settings::save() const {
     ini.setFloat("gameplay.mouse_sensitivity", mouseSensitivity);
     ini.setBool("gameplay.invert_look", invertLook);
     ini.setBool("gameplay.game_cursor", gameCursor);
+    ini.setBool("gameplay.touch_direct", touchDirect);
     ini.setBool("gameplay.auto_press_clock", autoPressClock);
     ini.setBool("gameplay.ignore_opponent_head", ignoreOpponentHead);
     ini.setInt("gameplay.next_color", nextColor);

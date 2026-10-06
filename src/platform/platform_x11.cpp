@@ -3,6 +3,9 @@
 #ifndef _WIN32
 #include "platform.h"
 #include "../gl/gl_context.h"
+#ifdef SCACELITH_GLES
+#include "../gl/gl46_gles.h"
+#endif
 #include "../core/embedded.h"
 #include "../core/image.h"
 #include "../core/log.h"
@@ -17,7 +20,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <spawn.h>
+#include <cerrno>
 #include <cstring>
+#include <string>
 #include <cstdlib>
 #include <cstdio>
 #include <thread>
@@ -106,10 +111,43 @@ void setIdentity(const char* title) {
     }
 }
 
+// Hybrid laptops (an integrated GPU driving the screen, an NVIDIA one beside it): GLX hands the
+// game the integrated GPU unless the process asks for NVIDIA's PRIME render offload, which is what
+// `prime-run` does. Ask for it ourselves when the NVIDIA driver is loaded and the player has not
+// chosen (any of the variables already set, or SCACELITH_INTEGRATED_GPU=1 to keep the integrated
+// one). Must happen before the first GLX call: libglvnd picks the vendor library once per screen.
+bool g_offloadRequested = false;
+void preferDiscreteGpu() {
+    for (const char* var : {"SCACELITH_INTEGRATED_GPU", "__GLX_VENDOR_LIBRARY_NAME", "__NV_PRIME_RENDER_OFFLOAD", "DRI_PRIME"})
+        if (getenv(var)) return;
+    if (access("/proc/driver/nvidia/version", F_OK) != 0) return;
+    setenv("__NV_PRIME_RENDER_OFFLOAD", "1", 1);
+    setenv("__GLX_VENDOR_LIBRARY_NAME", "nvidia", 1);
+    g_offloadRequested = true;
+    LOGI("NVIDIA driver found: requesting PRIME render offload (SCACELITH_INTEGRATED_GPU=1 to opt out)");
+}
+// The offload cannot be undone inside the process (the vendor is chosen): when it does not give a
+// context (an X server without an NVIDIA offload provider), start again on the integrated GPU.
+void retryWithoutOffload() {
+    if (!g_offloadRequested) return;
+    LOGW("PRIME render offload failed: restarting on the default GPU");
+    unsetenv("__NV_PRIME_RENDER_OFFLOAD");
+    unsetenv("__GLX_VENDOR_LIBRARY_NAME");
+    setenv("SCACELITH_INTEGRATED_GPU", "1", 1);
+    std::vector<std::string> args = commandLine();
+    std::vector<char*> argv;
+    argv.push_back(const_cast<char*>("scacelith"));
+    for (std::string& a : args) argv.push_back(&a[0]);
+    argv.push_back(nullptr);
+    execv("/proc/self/exe", argv.data());
+    LOGE("restart failed: %s", std::strerror(errno));   // execv only returns on failure
+}
+
 }  // namespace
 
 bool init(const WindowDesc& desc) {
     clock_gettime(CLOCK_MONOTONIC, &g_t0);
+    preferDiscreteGpu();
     g_dpy = XOpenDisplay(nullptr);
     if (!g_dpy) { LOGE("cannot open X display (is DISPLAY set / Xvfb running?)"); return false; }
     int screen = DefaultScreen(g_dpy);
@@ -118,7 +156,11 @@ bool init(const WindowDesc& desc) {
                                     GLX_DOUBLEBUFFER, True, None};
     int n = 0;
     GLXFBConfig* cfgs = glXChooseFBConfig(g_dpy, screen, fbAttribs, &n);
-    if (!cfgs || n == 0) { LOGE("no GLX framebuffer config"); return false; }
+    if (!cfgs || n == 0) {
+        retryWithoutOffload();
+        LOGE("no GLX framebuffer config");
+        return false;
+    }
     GLXFBConfig cfg = cfgs[0];
     XFree(cfgs);
     XVisualInfo* vi = glXGetVisualFromFBConfig(g_dpy, cfg);
@@ -146,15 +188,25 @@ bool init(const WindowDesc& desc) {
     if (!desc.hidden) XMapWindow(g_dpy, g_win);
 
     auto createCtx = (PFN_glXCreateContextAttribsARB)glXGetProcAddressARB((const GLubyte*)"glXCreateContextAttribsARB");
+#ifdef SCACELITH_GLES
+    // The scacelith_gles target (CMakeLists.txt): the Android renderer on an OpenGL ES 3.2 context.
+    int ctxAttribs[] = {GLX_CONTEXT_MAJOR_VERSION_ARB, 3, GLX_CONTEXT_MINOR_VERSION_ARB, 2,
+                        GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_ES2_PROFILE_BIT_EXT,
+#else
     int ctxAttribs[] = {GLX_CONTEXT_MAJOR_VERSION_ARB, 4, GLX_CONTEXT_MINOR_VERSION_ARB, 6,
                         GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_CORE_PROFILE_BIT_ARB,
+#endif
                         GLX_CONTEXT_FLAGS_ARB, desc.debugContext ? GLX_CONTEXT_DEBUG_BIT_ARB : 0, None};
     g_ctx = createCtx ? createCtx(g_dpy, cfg, nullptr, True, ctxAttribs) : nullptr;
+    if (!g_ctx) retryWithoutOffload();
     if (!g_ctx) { LOGE("cannot create a GL 4.6 core context (set MESA_GL_VERSION_OVERRIDE=4.6 for llvmpipe)"); return false; }
     glXMakeCurrent(g_dpy, g_win, g_ctx);
     const char* missing = nullptr;
     int nMissing = gl46::load(getProc, &missing);
     if (nMissing) LOGW("%d GL entry points missing (first: %s)", nMissing, missing);
+#ifdef SCACELITH_GLES
+    gl46::installGlesFallbacks();
+#endif
     gl46::afterContextCreated(desc.debugContext);
     setVsync(desc.vsync);
 

@@ -1,10 +1,11 @@
 // Full-resolution depth preparation: positive linear view depth (R32F, sky = SKY_DEPTH) and
-// level 0 of the HiZ pyramid (RG32F: r = closest raw depth (max, reverse-Z), g = farthest (min)).
+// level 0 of the HiZ pyramid (RGBA32F -- GL ES has no RG32F image format: r = closest raw depth
+// (max, reverse-Z), g = farthest (min), the rest unused).
 #include "shaders/post/post_common.glsl"
 layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform sampler2D uDepth;
 layout(binding = 0, r32f) uniform writeonly image2D oLinear;
-layout(binding = 1, rg32f) uniform writeonly image2D oHiZ;
+layout(binding = 1, rgba32f) uniform writeonly image2D oHiZ;
 layout(location = 1) uniform int uHiZ;  // 0: SSR off, no HiZ (oHiZ unbound)
 
 void main() {

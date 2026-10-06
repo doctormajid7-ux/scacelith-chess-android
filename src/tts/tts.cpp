@@ -151,6 +151,17 @@ int Synthesizer::voiceCount() const { return loaded() ? engine_->voiceCount() : 
 std::string Synthesizer::voiceName(int i) const { return loaded() ? engine_->voiceName(i) : std::string(); }
 
 bool Synthesizer::loadFrom(const std::string& dir, std::string* error) {
+#ifdef SCACELITH_TTS_NO_KERNELS
+    // This build has no compute kernels (the Android port: they are x86 SIMD, and the shared
+    // bodies in src/tts/kernels_impl.h use SSE2 throughout). Loading a model would only produce
+    // silence, so the load fails here and the coach speaks through its subtitles, as it does when
+    // the model has not been downloaded yet.
+    (void)dir;
+    const std::string msg = "this build has no speech kernels";
+    LOGW("tts: %s", msg.c_str());
+    if (error) *error = msg;
+    return false;
+#else
     auto t0 = Clock::now();
     auto e = std::make_unique<Engine>();
     std::string err;
@@ -162,6 +173,7 @@ bool Synthesizer::loadFrom(const std::string& dir, std::string* error) {
     LOGI("tts: models loaded from %s (%.0f MB, %s kernels at load, %.0f ms)", dir.c_str(),
          engine_->modelBytes() / 1048576.0, kern::active().name, since(t0) * 1000.0);
     return true;
+#endif
 }
 
 bool Synthesizer::load(std::string* error) {

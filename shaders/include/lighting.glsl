@@ -80,6 +80,9 @@ SunShadowResult evalSunShadow(vec3 posWS, vec3 nGeom, vec2 pixel, float extraBlu
     float dither = ign(pixel);
     int c = shadowCascade(posWS, dither);
     if (c < 0) return r;
+#ifdef DBG_NO_SHADOW
+    return r;
+#endif
     vec4 sc = lighting.shadowScale[c];
     float texel = sc.w;
     float NoL = dot(nGeom, L);
@@ -96,8 +99,8 @@ SunShadowResult evalSunShadow(vec3 posWS, vec3 nGeom, vec2 pixel, float extraBlu
     }
     vec2 grad = shadowDepthGradient(c, nGeom);
     vec2 texelUV = texel / sc.xy;
-#if defined(PASS_PROBE)
-    // Probe capture: small bilinear PCF only.
+#if defined(PASS_PROBE) || defined(SCACELITH_GLES)
+    // Probe capture, and every pass on mobile: small bilinear PCF only (no PCSS blocker search).
     float s4 = 0.0;
     for (int k = 0; k < 4; ++k) {
         vec2 o = (vec2(k & 1, k >> 1) - 0.5) * 1.5 * texelUV;
@@ -126,6 +129,10 @@ SunShadowResult evalSunShadow(vec3 posWS, vec3 nGeom, vec2 pixel, float extraBlu
         nBlk += b.x + b.y + b.z + b.w;
     }
     if (nBlk < 0.5) return r;                        // fully lit
+#ifdef DBG_NO_PCF
+    r.visibility = 1.0 - nBlk / float(NB * 4);
+    return r;
+#endif
     float zb = zSum / nBlk;
     float penumbraM = max(zr - zb, 0.0) * sc.z * tanT;
     if (nBlk > float(NB * 4) - 0.5 && penumbraM <= searchM) {  // umbra
@@ -478,6 +485,9 @@ vec3 shadeSurface(SurfaceInput i, Surface s, float planarLayer) {
 
     // Point and spot lights
     int nl = int(frame.passInfo.z);
+#ifdef DBG_NO_LIGHTS
+    nl = 0;
+#endif
     for (int k = 0; k < nl; ++k) {
         PointLightData pl = pointLights[k];
         vec3 d = pl.position - i.positionWS;
@@ -504,6 +514,9 @@ vec3 shadeSurface(SurfaceInput i, Surface s, float planarLayer) {
 
     // Diffuse + specular image based lighting
     int mode = int(lighting.probeInfo.w);
+#ifdef DBG_NO_PROBES
+    mode = 0;
+#endif
     ProbeBlend pb;
     pb.irradiance = vec3(0.0);
     pb.i0 = pb.i1 = -1;

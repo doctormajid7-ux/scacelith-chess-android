@@ -1610,6 +1610,111 @@ TEST(audio_voice_not_stolen_by_effects) {
     CHECK(analyzeStereo(out).peak <= kMinus1dB);
 }
 
+// The effect pool is bounded (kMaxVoices); a play with every voice busy reuses the *oldest* one.
+// That choice is safe, and this pins it: the pool must cut the oldest effect, not an arbitrary one,
+// and never a speech voice -- which lives in its own pool and is what the coach talks through.
+TEST(audio_voice_pool_full_reuses_the_oldest_effect) {
+    using namespace audio;
+    const m::vec3 right(0.5f, 1.23f, 0.62f), left(-0.5f, 1.23f, 0.62f);
+    // One audible effect, hard right; the other 31 fill the pool silently (gain 0), so whatever the
+    // pool cuts shows in the right channel alone. Every play happens before a frame is rendered, so
+    // all the voices share one start clock and the tie-break makes voice 0 the oldest.
+    auto fillPool = [&](Mixer& m, bool withCoach) {
+        setupSpeechMixer(m, kFs, false, false);   // dry: no room or ambience to blur the measurement
+        installAllSounds(m, 9u);
+        if (withCoach) {
+            // The coach, off to the left and far enough that its right-channel bleed is negligible.
+            VoiceParams vp;
+            vp.position = m::vec3(-6.0f, 1.2f, 0.0f);
+            vp.facing = m::vec3(0.0f);
+            vp.sampleRate = kSrcRate;
+            const std::vector<float> talk = speechLike(3.0f, kSrcRate, 41u);
+            m.speechOpen(0, speechParams(vp));
+            m.speechAppend(0, speechChunk(talk, 0, talk.size()));
+            m.speechClose(0);
+        }
+        PlayRequest first;
+        first.sfx = Sfx::Capture;   // a bright attack, and the window below sits inside it
+        first.pos = right;
+        first.gain = 1.5f;
+        CHECK(m.play(first));       // voice 0, the only audible one
+        for (int k = 1; k < kMaxVoices; ++k) {
+            PlayRequest r;
+            r.sfx = Sfx::Capture;
+            r.pos = left;
+            r.gain = 0.0f;          // silent, but it still holds a voice
+            CHECK(m.play(r));
+        }
+        CHECK_EQ(m.activeVoices(), kMaxVoices);
+    };
+
+    // Reference: the pool with nothing stolen. voice 0's attack is measured over [0, W).
+    constexpr int W = 1920;   // 40 ms
+    Mixer ref(61u);
+    fillPool(ref, false);
+    std::vector<float> refOut;
+    renderInto(ref, refOut, W);
+    const double rightRef = channelEnergy(refOut, 0, W, 1);
+    CHECK(rightRef > 0.0);
+
+    // Steal: the same, plus a 33rd play with every voice busy. The pool must reuse the oldest -- the
+    // only audible voice -- so the right channel over the same [0, W) drops to the coach's bleed.
+    Mixer m(61u);
+    fillPool(m, true);
+    PlayRequest extra;
+    extra.sfx = Sfx::Capture;
+    extra.pos = left;
+    extra.gain = 0.0f;
+    CHECK(m.play(extra));
+    CHECK_EQ(m.activeVoices(), kMaxVoices);
+    std::vector<float> out;
+    renderInto(m, out, W);
+    const double rightAfter = channelEnergy(out, 0, W, 1);
+    std::fprintf(stderr, "  pool full: right channel %.4g with the pool intact, %.4g after the 33rd play\n", rightRef, rightAfter);
+
+    CHECK(rightAfter < rightRef * 0.5);   // the oldest (right-panned) voice is the one that went
+
+    // And the coach was never a candidate: 33 effect plays left the speech voice open and moving.
+    CHECK_EQ(m.activeSpeech(), 1);
+    CHECK_EQ(m.speechInfo(0).state, VoiceState::Playing);
+    CHECK(m.speechInfo(0).played > 0);
+}
+
+// The ambience bird pool is kBirds (3) slots; a phrase that arrives with all three busy is
+// skipped, never written over a sounding bird. Audited as safe; this pins the skip and the reuse.
+TEST(audio_ambience_bird_pool_skips_when_full) {
+    using namespace audio;
+    Ambience amb;
+    amb.prepare(kFs, 3u);
+    CHECK_EQ(amb.activeBirds(), 0);
+
+    // Fill the pool, one slot per window; every phrase is accepted into a free slot.
+    for (int w = 0; w < 3; ++w) {
+        CHECK(amb.startBirdForTest(w, 0));   // species 0: the shortest phrases
+        CHECK_EQ(amb.birdWindow(w), w);
+    }
+    CHECK_EQ(amb.activeBirds(), 3);
+
+    // A fourth phrase with every slot busy is skipped: no slot is taken, and the three sounding
+    // birds keep the windows they had.
+    CHECK(!amb.startBirdForTest(2, 0));
+    CHECK_EQ(amb.activeBirds(), 3);
+    CHECK_EQ(amb.birdWindow(0), 0);
+    CHECK_EQ(amb.birdWindow(1), 1);
+    CHECK_EQ(amb.birdWindow(2), 2);
+
+    // Rendering lets the phrases end, and the freed slot is reused: the pool is not wedged.
+    const Basis lis = makeBasis(ListenerPose{});
+    bool freed = false;
+    for (int step = 0; step < 300 && !freed; ++step) {   // up to 3 s, in 10 ms blocks
+        float l[480] = {}, r[480] = {}, rm[480] = {};
+        amb.process(l, r, rm, 480, lis, 1.0f);
+        freed = amb.activeBirds() < 3;
+    }
+    CHECK(freed);
+    CHECK(amb.startBirdForTest(0, 0));
+}
+
 // The emitter follows the pose: at the coach's right, then its left, with ramped gains.
 TEST(audio_voice_follows_pose) {
     using namespace audio;

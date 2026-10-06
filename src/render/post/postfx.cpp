@@ -87,7 +87,7 @@ struct PostFX::Impl {
     void ensureSSR() {
         if (ssrHist[0].id) return;
         for (int i = 0; i < 2; ++i) ssrHist[i] = gpu::createTexture2D(w, h, GL_RGBA16F);
-        hiz = gpu::createTexture2D(w, h, GL_RG32F, 0);
+        hiz = gpu::createTexture2D(w, h, GL_RGBA32F, 0);   // rg = min/max (GL ES has no RG32F image format)
         gpu::setFilter(hiz, GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST);
         colorPyr = gpu::createTexture2D(w, h, GL_RGBA16F, std::min(gpu::mipCount(w, h), 8));
         ssrRays = gpu::createTexture2D(hw, hh, GL_RGBA32F);
@@ -101,7 +101,7 @@ struct PostFX::Impl {
     void ensureDOF() {
         if (dofHalf.id) return;
         dofHalf = gpu::createTexture2D(hw, hh, GL_RGBA16F);
-        dofTiles = gpu::createTexture2D(divUp(hw, 8), divUp(hh, 8), GL_R16F);
+        dofTiles = gpu::createTexture2D(divUp(hw, 8), divUp(hh, 8), GL_RGBA16F);
         dofBlur = gpu::createTexture2D(hw, hh, GL_RGBA16F);
     }
     // A texture to bind where an optional target does not exist (its pass is off: never sampled).
@@ -132,8 +132,17 @@ bool PostFX::init() {
     glTextureSubImage2D(I.ssrNone.id, 0, 0, 0, 1, 1, GL_RGBA, GL_FLOAT, none);
 
     std::vector<uint16_t> bn = postnoise::blueNoise(64);
+#ifdef SCACELITH_GLES
+    // GL_R16 (16-bit unorm) is not a GL ES format without EXT_texture_norm16: R16F holds the same
+    // [0, 1] values to 11 bits, plenty for a 64x64 dither pattern.
+    std::vector<float> bnf(bn.size());
+    for (size_t i = 0; i < bn.size(); ++i) bnf[i] = float(bn[i]) / 65535.0f;
+    I.blueNoise = gpu::createTexture2D(64, 64, GL_R16F);
+    glTextureSubImage2D(I.blueNoise.id, 0, 0, 0, 64, 64, GL_RED, GL_FLOAT, bnf.data());
+#else
     I.blueNoise = gpu::createTexture2D(64, 64, GL_R16);
     glTextureSubImage2D(I.blueNoise.id, 0, 0, 0, 64, 64, GL_RED, GL_UNSIGNED_SHORT, bn.data());
+#endif
     gpu::setFilter(I.blueNoise, GL_NEAREST, GL_NEAREST);
     gpu::setWrap(I.blueNoise, GL_REPEAT);
 
@@ -146,8 +155,9 @@ bool PostFX::init() {
     I.exposure = gpu::createTexture2D(1, 1, GL_RGBA32F);
     const float zero4[4] = {0, 0, 0, 0};
     glTextureSubImage2D(I.exposure.id, 0, 0, 0, 1, 1, GL_RGBA, GL_FLOAT, zero4);
-    std::vector<uint32_t> zeros(256, 0u);
-    I.histogram = gpu::createBuffer(256 * sizeof(uint32_t), zeros.data(), GL_DYNAMIC_STORAGE_BIT);
+    // 256 bins, then the last exposure state (vec4, exposure_average.comp).
+    std::vector<uint32_t> zeros(256 + 4, 0u);
+    I.histogram = gpu::createBuffer(zeros.size() * sizeof(uint32_t), zeros.data(), GL_DYNAMIC_STORAGE_BIT);
     gpu::ensureBuffer(I.ubo, sizeof(PostUBOData));
 
     glCreateSamplers(1, &I.shadowSampler);
@@ -187,17 +197,14 @@ void PostFX::resize(int renderW, int renderH) {
     for (int i = 0; i < 2; ++i) {
         I.linDepth[i] = gpu::createTexture2D(w, h, GL_R32F);
         I.halfDepth[i] = gpu::createTexture2D(hw, hh, GL_R32F);
-        I.aoHist[i] = gpu::createTexture2D(hw, hh, GL_R16F);
+        I.aoHist[i] = gpu::createTexture2D(hw, hh, GL_RGBA16F);
         I.taaHist[i] = gpu::createTexture2D(w, h, GL_RGBA16F);
     }
-    I.halfNormal = gpu::createTexture2D(hw, hh, GL_RGBA8);
-    I.aoRaw = gpu::createTexture2D(hw, hh, GL_R16F);
-    I.aoOut = gpu::createTexture2D(w, h, GL_R8);
+    I.halfNormal = gpu::createTexture2D(hw, hh, GL_RGBA8);        I.aoRaw = gpu::createTexture2D(hw, hh, GL_RGBA16F);        I.aoOut = gpu::createTexture2D(w, h, GL_RGBA8);
     I.scene = gpu::createTexture2D(w, h, GL_RGBA16F);
     I.chainA = gpu::createTexture2D(w, h, GL_RGBA16F);
-    I.mbTile = std::clamp(int(std::lround(20.0 * double(h) / 1080.0)), 8, 32);
-    I.mbTiles = gpu::createTexture2D(divUp(w, I.mbTile), divUp(h, I.mbTile), GL_RG16F);
-    I.mbNeighbor = gpu::createTexture2D(divUp(w, I.mbTile), divUp(h, I.mbTile), GL_RG16F);
+    I.mbTile = std::clamp(int(std::lround(20.0 * double(h) / 1080.0)), 8, 32);        I.mbTiles = gpu::createTexture2D(divUp(w, I.mbTile), divUp(h, I.mbTile), GL_RGBA16F);
+        I.mbNeighbor = gpu::createTexture2D(divUp(w, I.mbTile), divUp(h, I.mbTile), GL_RGBA16F);
     int bloomLevels = std::min(kBloomLevels, gpu::mipCount(hw, hh));
     I.bloomDown = gpu::createTexture2D(hw, hh, GL_RGBA16F, bloomLevels);
     I.bloomUp = gpu::createTexture2D(hw, hh, GL_RGBA16F, bloomLevels);
@@ -580,7 +587,7 @@ void PostFX::resolve(const PostInputs& in) {
             gpu::dispatch2D(mipSize(I.hw, lod), mipSize(I.hh, lod), 16, 16);
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             if (compute("shaders/post/exposure_average.comp")) {
-                bindImg(0, I.exposure, 0, GL_READ_WRITE);
+                bindImg(0, I.exposure, 0, GL_WRITE_ONLY);
                 glDispatchCompute(1, 1, 1);
                 // barrier() + the histogram the average cleared, for next frame's atomics.
                 glMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_FRAMEBUFFER_BARRIER_BIT |

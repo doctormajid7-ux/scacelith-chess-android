@@ -12,6 +12,10 @@
 #include "game_saving.h"
 #include "game_scene_detail.h"
 #include "../ui/ui_font.h"
+#include "../ui/ui_draw.h"
+#ifdef __ANDROID__
+#include "../platform/platform_android.h"
+#endif
 #include "layout.h"
 #include "look_up.h"
 #include "scoresheet_layout.h"
@@ -995,6 +999,10 @@ bool GameScene::update(AppContext& ctx, float dt) {
         runWarp(warpLeft_);   // the rest of a warp that stopped for a --play-then menu choice
     }
     const plat::Input& in = plat::input();
+    ui::gfx::setTextScale(settings().textScale);
+#ifdef __ANDROID__
+    android_plat::setTouchDirect(settings().touchDirect);
+#endif
     ui::beginFrame(plat::width(), plat::height(), dt);
     bool keepRunning = true;
     // Hot-seat: nobody acts during the handover, and buttons still held by the previous player
@@ -1182,7 +1190,14 @@ bool GameScene::update(AppContext& ctx, float dt) {
         clockHover_ = false;
     }
     // The game's pointer replaces the system arrow at the table (not over menus and cards).
+#ifdef __ANDROID__
+    // There is no system arrow to fall back to here (plat::setCursorVisible is a no-op): the
+    // drawn arrow is the only pointer, so it stays over the menus, the cards and the pause too --
+    // it only goes during the two-finger look, where the view itself is the pointer.
+    bool hideArrow = !dragging_;
+#else
     bool hideArrow = gameCursorShown() && !ui::wantsMouse();
+#endif
     if (hideArrow != osCursorHidden_) {
         plat::setCursorVisible(!hideArrow);
         osCursorHidden_ = hideArrow;
@@ -2638,9 +2653,17 @@ void GameScene::renderOverlay(AppContext&, float) {
     if (coachModelInstalled(&fetched)) coachModelDownloaded(fetched);   // heard from the coach's next line on
     ui::drawNotifications();
     // No pointer while the view goes over to the other player (hot-seat): the arrow stays hidden.
+#ifdef __ANDROID__
+    // The drawn arrow is the only pointer on this platform (see the hideArrow note in update()):
+    // it is drawn on the menus, the pause and the cards too, and the kind it shows follows the
+    // screen the player is on (the Waiting arrow over the menus, not the aiming one).
+    if (!ctx_->screenshotMode && !(hotSeat() && handover_.active()))
+        ui::gameCursor(cursorPixels(), gameCursorKind());
+#else
     if (osCursorHidden_ && !(hotSeat() && handover_.active()) &&
         (mouseOverride_ || (plat::input().mouseInWindow && !ctx_->screenshotMode)))
         ui::gameCursor(cursorPixels(), gameCursorKind());
+#endif
     ui::endFrame();
 }
 

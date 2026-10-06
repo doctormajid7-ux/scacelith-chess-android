@@ -1,6 +1,7 @@
 // Thin helpers over OpenGL 4.6 DSA objects. Everything uses direct state access
 // (glCreate*/glNamed*/glTexture*); never bind-to-edit.
 #pragma once
+#include <string>
 #include "../gl/gl46.h"
 #include "../math/math.h"
 #include <cstdint>
@@ -51,9 +52,13 @@ void drawFullscreenTriangle();
 void dispatch2D(int w, int h, int localX = 8, int localY = 8);
 
 // Debug labels for RenderDoc / Nsight.
+// With SCACELITH_GPU_PROFILE_GROUPS=1 next to SCACELITH_GPU_PROFILE, every debug group is also a
+// profiler scope (named "[group]"): the finer split of a pass, the post chain's included.
 struct DebugGroup {
     explicit DebugGroup(const char* name);
     ~DebugGroup();
+    const char* name_ = nullptr;
+    double start_ = 0;
 };
 
 // Frustum planes (xyz normal pointing inside, w distance) of a clip-space [0,1]-depth projection
@@ -76,5 +81,10 @@ struct ProfileScope {
     double start_ = 0;
 };
 void profileEndFrame();
+// The finer profile (SCACELITH_GPU_PROFILE_GROUPS): whether it is on, and a measured scope added
+// under 'name' (Renderer::drawScene times the main pass per material with it).
+bool profileGroupsEnabled();
+void profileAdd(const std::string& name, double ms);
+double profileNowMs();
 
 }  // namespace gpu

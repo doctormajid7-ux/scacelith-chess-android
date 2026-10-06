@@ -374,6 +374,16 @@ void radial(vec2 center, vec2 radii, vec4 c, float t0, float t1) {
 
 // ---- Text ---------------------------------------------------------------------------------------
 namespace {
+// Options > Display, text size: every interface text is drawn and measured this much larger. Not
+// the wordmark-sized titles (sized to the page) nor the handwriting (sized to the paper).
+float g_textScale = 1.0f;
+float esz(const TextStyle& st) { return (st.hand >= 0 || st.size > 60.0f) ? st.size : st.size * g_textScale; }
+}  // namespace
+
+void setTextScale(float k) { g_textScale = m::clamp(k, 0.8f, 1.6f); }
+float textScale() { return g_textScale; }
+
+namespace {
 text::Run shape(const std::string& s, const TextStyle& st) {
     int dir = textDirection(s, st);
     if (st.hand >= 0) return text::shapeHandwriting(s, st.hand, st.tracking, dir);
@@ -383,12 +393,12 @@ text::Run shape(const std::string& s, const TextStyle& st) {
 
 float caretOffset(const std::string& s, const TextStyle& st, int index) {
     if (!font::ready()) return 0.0f;
-    return text::caretX(shape(s, st), index) * st.size;
+    return text::caretX(shape(s, st), index) * esz(st);
 }
 
 int caretAt(const std::string& s, const TextStyle& st, float offset) {
-    if (!font::ready() || st.size <= 0.0f) return 0;
-    return text::caretIndex(shape(s, st), offset / st.size);
+    if (!font::ready() || esz(st) <= 0.0f) return 0;
+    return text::caretIndex(shape(s, st), offset / esz(st));
 }
 
 int textDirection(const std::string& s, const TextStyle& st) {
@@ -400,7 +410,7 @@ int textDirection(const std::string& s, const TextStyle& st) {
 
 float textWidth(const std::string& s, const TextStyle& st) {
     if (!font::ready() || s.empty()) return 0.0f;
-    return shape(s, st).advance * st.size;
+    return shape(s, st).advance * esz(st);
 }
 
 float fitSize(const std::string& s, const TextStyle& st, float maxWidth, float minScale) {
@@ -414,17 +424,17 @@ float capHeight(const TextStyle& st) {
     // capitals use the same value.
     int face = st.face;
     if (st.hand >= 0) face = font::FACE_HAND_CAVEAT + st.hand;
-    return font::metrics(face).capHeight * st.size;
+    return font::metrics(face).capHeight * esz(st);
 }
 
 float text(const std::string& s, float x, float baseline, const TextStyle& st) {
     if (!font::ready() || s.empty()) return 0.0f;
     text::Run run = shape(s, st);
-    float w = run.advance * st.size;
+    float w = run.advance * esz(st);
     if (st.align == HAlign::Center) x -= w * 0.5f;
     else if (st.align == HAlign::Right) x -= w;
     float sc = g.s;
-    float sizePx = st.size * sc;
+    float sizePx = esz(st) * sc;
     float ox = x * sc;
     float by = std::round(baseline * sc);
     // Slight dilation at small sizes keeps thin serifs visible after blending.
@@ -471,7 +481,7 @@ const std::vector<Line>& wrap(const std::string& s, float maxWidth, const TextSt
         cache.gen = font::atlasGeneration();
     }
     char keyBuf[96];
-    std::snprintf(keyBuf, sizeof(keyBuf), "%d|%d|%d|%.3f|%.3f|%.3f|", st.face, st.hand, st.dir, st.size, st.tracking, maxWidth);
+    std::snprintf(keyBuf, sizeof(keyBuf), "%d|%d|%d|%.3f|%.3f|%.3f|", st.face, st.hand, st.dir, esz(st), st.tracking, maxWidth);
     std::string key = keyBuf + s;
     auto hit = cache.map.find(key);
     if (hit != cache.map.end()) return hit->second;
@@ -499,7 +509,7 @@ const std::vector<Line>& wrap(const std::string& s, float maxWidth, const TextSt
             }
             if (toks.empty() || pendingSpace || uni::breakBetween(char32_t(prev), char32_t(cp)))
                 toks.push_back({at, i, pendingSpace && !toks.empty(), 0.0f,
-                                st.tracking * st.size * uni::trackingScale(char32_t(prev), char32_t(cp))});
+                                st.tracking * esz(st) * uni::trackingScale(char32_t(prev), char32_t(cp))});
             else
                 toks.back().b = i;
             pendingSpace = false;
@@ -534,7 +544,8 @@ const std::vector<Line>& wrap(const std::string& s, float maxWidth, const TextSt
 }  // namespace
 
 int textWrapped(const std::string& s, float x, float baseline, float maxWidth, const TextStyle& st, float lineHeight) {
-    if (lineHeight <= 0.0f) lineHeight = st.size * 1.3f;
+    if (lineHeight <= 0.0f) lineHeight = esz(st) * 1.3f;
+    else if (st.size > 0.0f) lineHeight *= esz(st) / st.size;   // the caller's spacing, for the larger text
     const std::vector<Line>& lines = wrap(s, maxWidth, st);  // text() never calls wrap()
     float y = baseline;
     for (auto& l : lines) {

@@ -14,6 +14,7 @@
 //  11. PostFX::resolve -> SSR, volumetrics, TAA, DOF, motion blur, bloom, tonemap -> backbuffer
 // The UI is drawn by the caller on the backbuffer after endFrame().
 #pragma once
+#include <unordered_map>
 #include "../math/math.h"
 #include "gpu.h"
 #include "material.h"
@@ -174,6 +175,16 @@ struct RenderSettings {
     int probeResolution = 128;     // capture / prefiltered cube size
     int probeBounces = 2;
     float specularAA = 1.0f;
+    // The simple renderer (shaders/passes/simple.frag, Renderer::renderSimple): one forward pass
+    // with base colours, sun + shadow, point lights and hemisphere ambient, then a fragment
+    // tonemap. No prepass, probes, reflections or compute post chain: for GPUs the full renderer
+    // overwhelms (phones). The quality preset still sets the shadow map.
+    bool simple = false;
+    // Options of the simple renderer: material textures (0 plain colours, 1 the procedural
+    // surfaces without their micro detail, 2 in full) and 4x MSAA. Its indirect lighting is
+    // lightProbes, as in the full renderer.
+    int simpleMaterials = 0;
+    bool simpleMsaa = false;
     void applyPreset(Quality q);
 };
 
@@ -311,12 +322,34 @@ private:
         float radius;
     };
     const ::ShaderProgram* programFor(const Material& mat, PassId pass, bool allowTess = true);
+    const ::ShaderProgram* programLookup(const Material& mat, PassId pass, bool allowTess);
+    std::unordered_map<uint64_t, const ::ShaderProgram*> programMemo_;   // programFor, per frame
     void createTargets(int w, int h);
     void destroyTargets();
     void allocatePlanar();
     void bindGlobalTextures();
     void updateLightingUBO();
     void defaultLightingLayout();
+    void renderSimple(const DrawFilter& mainFilter);
+    // Texture bakes of the simple renderer (Options: material textures = baked): per material,
+    // its procedural surface evaluated once into a texture array (simple_bake.frag).
+    struct SimpleBake {
+        gpu::Texture tex;          // SRGB8_ALPHA8 array: rgb albedo, a roughness; 3 layers (X, Y, Z) or 1
+        int mode = 0;              // 1 triplanar, 2 floor (the +Y plane only), 3 mesh uv
+        m::vec2 tile{1, 1};        // metres covered by the texture (uv: 1 x 1)
+        m::vec3 origin{0, 0, 0};
+        bool world = false;        // projected from world positions (else object space)
+        bool ok = false;
+    };
+    std::unordered_map<const Material*, SimpleBake> simpleBakes_;
+    void bakeSimpleMaterials();
+    const SimpleBake* simpleBakeOf(const Material& mat) const;
+    bool ensureSimpleMsaa();
+    void destroySimpleMsaa();
+    struct SimpleMsaa {
+        GLuint fb = 0, color = 0, depth = 0;
+        int w = 0, h = 0;
+    } msaa_;
 
     RenderSettings settings_;
     int width_ = 0, height_ = 0;

@@ -37,20 +37,48 @@ float specularAA(vec3 n, float perceptualRoughness) {
 
 void main() {
     SurfaceInput i = buildSurfaceInput();
+#if defined(DBG_FLAT) && defined(PASS_MAIN) && !defined(MATERIAL_TRANSPARENT)
+    outColor = vec4(0.5, 0.5, 0.5, 1.0);
+    outNormalRough = vec4(i.normalWS, 0.5);
+    outSpecular = vec4(0.04, 0.04, 0.04, 0.0);
+    outVelocity = vec2(0.0);
+    return;
+#endif
     Surface s = defaultSurface(i);
+#if defined(DBG_FLAT_AT) && DBG_FLAT_AT == 1 && defined(PASS_MAIN) && !defined(MATERIAL_TRANSPARENT)
+    outColor = vec4(vec3(0.5), 1.0); outNormalRough = vec4(i.normalWS, 0.5); outSpecular = vec4(0.04); outVelocity = vec2(0.0);
+    return;
+#endif
+
+#ifndef DBG_NO_SURFACE
     surface(i, s);
+#endif
 #ifdef MATERIAL_ALPHA_TEST
     if (s.alpha < 0.5) discard;
 #endif
     s.normalWS = normalize(s.normalWS);
     s.clearcoatNormalWS = normalize(s.clearcoatNormalWS);
     s.roughness = clamp(s.roughness, 0.02, 1.0);
-#ifdef PASS_MAIN
+#if defined(DBG_FLAT_AT) && DBG_FLAT_AT == 2 && defined(PASS_MAIN) && !defined(MATERIAL_TRANSPARENT)
+    outColor = vec4(s.albedo, 1.0); outNormalRough = vec4(i.normalWS, 0.5); outSpecular = vec4(0.04); outVelocity = vec2(0.0);
+    return;
+#endif
+
+#if defined(PASS_MAIN) && !defined(DBG_NO_SPECAA)
     s.roughness = specularAA(i.normalWS, s.roughness);
     s.clearcoatRoughness = specularAA(i.normalWS, clamp(s.clearcoatRoughness, 0.02, 1.0));
 #endif
-    float planarLayer = draws[vin.draw].info.y;
+    float planarLayer = draws[DRAW_INDEX_FS].info.y;
+#if defined(DBG_FLAT_AT) && DBG_FLAT_AT == 3 && defined(PASS_MAIN) && !defined(MATERIAL_TRANSPARENT)
+    outColor = vec4(s.albedo * (planarLayer + 2.0), 1.0); outNormalRough = vec4(i.normalWS, 0.5); outSpecular = vec4(0.04); outVelocity = vec2(0.0);
+    return;
+#endif
+
+#ifdef DBG_NO_SHADE
+    vec3 c = s.albedo;
+#else
     vec3 c = shadeSurface(i, s, planarLayer);
+#endif
 #if (defined(PASS_MAIN) || defined(PASS_PLANAR)) && !defined(MATERIAL_TRANSPARENT)
     {
         // Designation highlight (DrawItem::highlight), as if a cool light picked the object out.
@@ -67,7 +95,7 @@ void main() {
         //    a clear cobalt edge on sunlit white, a soft blue sheen on black, no neon line.
         // 3. A thin absolute rim on the silhouette keeps it visible on black; a faint lift.
         // Breathes slowly.
-        vec4 hl = draws[vin.draw].highlight;
+        vec4 hl = draws[DRAW_INDEX_FS].highlight;
         if (hl.a > 0.0) {  // uniform per draw
             float NoV = saturate(dot(i.normalWS, i.viewDirWS));
             float k = hl.a * (0.80 + 0.20 * sin(i.time * 3.4));
@@ -85,6 +113,11 @@ void main() {
     }
 #endif
     c = min(c, vec3(60000.0));
+#if defined(DBG_FLAT_AT) && DBG_FLAT_AT == 4 && defined(PASS_MAIN) && !defined(MATERIAL_TRANSPARENT)
+    outColor = vec4(c, 1.0); outNormalRough = vec4(i.normalWS, 0.5); outSpecular = vec4(0.04); outVelocity = vec2(0.0);
+    return;
+#endif
+
 #ifdef MATERIAL_TRANSPARENT
     if (s.transmission > 0.0) {
         // Glass contract: the specular reflection is never scaled by alpha; the diffuse
@@ -117,7 +150,11 @@ void main() {
     // off screen) go unused.
     bool planar = planarLayer >= 0.0 && frame.passInfo.w > planarLayer && lighting.planarInfo[int(planarLayer)].x > 0.5;
     outSpecular = vec4(f0, planar ? 0.0 : (rough < 0.6 ? 1.0 : 0.0));
+#ifdef DBG_NO_VELOCITY
+    outVelocity = vec2(0.0);
+#else
     outVelocity = motionVector();
+#endif
 #endif
 #if defined(MATERIAL_SCREEN_DOOR) && !defined(MATERIAL_TRANSPARENT) && (defined(PASS_MAIN) || defined(PASS_PLANAR))
     // Same pixels as the prepass. Last, so the derivatives above still see whole quads.

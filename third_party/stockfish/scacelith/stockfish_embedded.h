@@ -1,9 +1,9 @@
 // Scacelith glue for the embedded Stockfish 19 (GPL-3.0). This is the only header the game sees;
 // Stockfish's own headers stay private to the stockfish_embedded library.
 //
-// The library holds several builds of the engine ("variants", one per instruction set, from the
-// x86-64 baseline up to AVX-512; CMakeLists.txt, SCACELITH_SF_VARIANTS) and a dispatcher that
-// chooses the best one this CPU runs. A session is started by calling stockfish_embedded_supported()
+// The library holds several builds of the engine ("variants", one per instruction set: on x86-64
+// from the baseline up to AVX-512, on arm64 armv8 and armv8-dotprod; CMakeLists.txt,
+// SCACELITH_SF_VARIANTS) and a dispatcher that chooses the best one this CPU runs. A session is started by calling stockfish_embedded_supported()
 // and then stockfish_embedded_main() on a dedicated thread after std::cin / std::cout have been
 // redirected to in-memory stream buffers (see src/ai/uci_host.cpp); it returns after the "quit"
 // command. The engine's state (options, thread pool, hash table, network) belongs to the session
@@ -20,8 +20,8 @@ const char* stockfish_embedded_variant(int index);
 
 // Caps the variant chosen by the next stockfish_embedded_supported(), for troubleshooting: "auto"
 // (or empty, the default) chooses the best variant this CPU runs; a variant name, built or not
-// (x86-64, x86-64-sse41-popcnt, x86-64-avx2, x86-64-avxvnni or x86-64-avx512icl), chooses the best
-// one at or below it. Never raises the choice above what the CPU runs; a running session keeps its
+// (x86-64, x86-64-sse41-popcnt, x86-64-avx2, x86-64-avxvnni or x86-64-avx512icl; or the Android
+// build's armv8 and armv8-dotprod), chooses the best one at or below it. Never raises the choice above what the CPU runs; a running session keeps its
 // variant. Returns false, leaving the cap unchanged, for an unknown name.
 bool stockfish_embedded_limit_arch(const char* arch);
 

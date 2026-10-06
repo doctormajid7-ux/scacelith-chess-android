@@ -197,4 +197,9 @@ void surface(in SurfaceInput i, inout Surface s) {
     s.clearcoat = i.matParams[3].x;
     s.clearcoatRoughness = i.matParams[3].y;
     s.clearcoatNormalWS = i.normalWS;
+    // A soft backlight (the light button of a digital clock): the reflector glows a little and the
+    // dark segments mask it. Against a sunlit display (~20,000 nits reflected) it is nothing; in
+    // the shade (the player of the black pieces sees the clock in the robot's shadow) it is what
+    // keeps the digits readable.
+    s.emission = base * (1.0 - lit * contrast) * 1500.0;
 }

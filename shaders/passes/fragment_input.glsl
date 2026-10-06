@@ -9,11 +9,28 @@ in VertexData {
     vec4 curClip;
     vec4 prevClip;
     flat int draw;
+#ifdef SCACELITH_GLES
+    float clipDist;   // emulated gl_ClipDistance[0] (mesh_common.glsl)
+#endif
 } vin;
 
+#ifdef DBG_UNIFORM_DRAW
+#define DRAW_INDEX_FS uDraw
+#else
+#define DRAW_INDEX_FS vin.draw
+#endif
+
 SurfaceInput buildSurfaceInput() {
+#if defined(SCACELITH_GLES) && defined(PASS_PLANAR)
+    // What the hardware clip distance does on desktop. Only the planar reflection passes set a
+    // clip plane (planar.cpp; every other pass has (0,0,0,1)), so only they pay for the discard:
+    // on Adreno a shader that can discard loses early depth testing, and the main pass would
+    // then shade every hidden fragment of the hall (~1 s a frame instead of ~30 ms).
+    if (vin.clipDist < 0.0) discard;
+#endif
     SurfaceInput i;
-    DrawData dd = draws[vin.draw];
+    // Field by field, not a copy of the whole DrawData (see mesh_common.glsl: Adreno).
+#define dd draws[DRAW_INDEX_FS]
     i.positionWS = vin.posWS;
     i.positionOS = vin.posOS;
     vec3 n = normalize(vin.normalWS);
@@ -39,6 +56,7 @@ SurfaceInput buildSurfaceInput() {
     i.screenUV = gl_FragCoord.xy * frame.resolution.zw;
     i.time = frame.cameraPos.w;
     i.passId = int(frame.passInfo.x);
+#undef dd
     return i;
 }
 
@@ -63,7 +81,7 @@ vec2 motionVector() {
 const uint kScreenDoorRanks[8] = uint[](147u, 198u, 108u, 147u, 57u, 108u, 57u, 198u);
 
 bool screenDoorHidden() {
-    vec4 fade = draws[vin.draw].fade;
+    vec4 fade = draws[DRAW_INDEX_FS].fade;
     if (fade.x >= 1.0) return false;
     uvec2 q = uvec2(gl_FragCoord.xy);
     uvec2 f = q & 1u, c = (q >> 1u) & 1u;

@@ -46,6 +46,8 @@ options.vsync = 垂直同步
 options.vsync.help = 使画面与显示器同步，避免画面撕裂。
 options.render_scale = 渲染比例
 options.render_scale.help = 3D 画面的内部分辨率。越低越快，越高越清晰。
+options.text_scale = 文字大小
+options.text_scale.help = 界面文字的大小：菜单、选项、教练字幕。
 
 options.quality = 画质
 options.quality.low = 低
@@ -57,6 +59,17 @@ options.motion_blur = 动态模糊
 options.motion_blur.help = 像电影摄影机一样，模糊相机和手臂的快速动作。
 options.depth_of_field = 景深
 options.depth_of_field.help = 像相机镜头一样，柔化远在你所看之处前方或后方的物体。
+options.simple_renderer = 简化渲染
+options.simple_renderer.help = 为性能较弱的图形芯片（手机）提供的更轻量渲染：材质纯色、太阳阴影和简单光照，没有反射和后期处理效果。
+options.simple_materials = 材质纹理
+options.simple_materials.help = 简化渲染如何绘制材质。纯色：每种材质一种颜色（最快）。预计算：大理石、木材、石材和织物的真实纹理，在加载时一次性计算为贴图（快速）。完整：逐像素计算（对手机要求很高）。
+options.simple_materials.plain = 纯色
+options.simple_materials.light = 预计算
+options.simple_materials.full = 完整
+options.simple_indirect = 间接光照
+options.simple_indirect.help = 阳光在整个大厅中反射的光线及其柔和反射（加载时计算一次）。
+options.simple_msaa = 抗锯齿 (MSAA)
+options.simple_msaa.help = 平滑物体的锯齿边缘（4 倍多重采样；在手机图形芯片上几乎没有开销）。
 options.brightness = 亮度
 options.brightness.neutral = 标准
 options.brightness.value = {0} EV
@@ -90,6 +103,10 @@ options.handover.flight = 飞行，{0} 秒
 options.handover.help = 两人在同一台电脑上对弈时，每步棋后视角如何从一方棋手的眼中转到另一方。直接切换可避免镜头移动。
 options.game_cursor = 游戏指针
 options.game_cursor.help = 在棋桌前，游戏会绘制自己的指针，提示点击将会做什么。关闭时使用系统箭头。
+options.touch_mode = 触控方式
+options.touch_mode.help = 触控板：手指移动箭头，轻点在箭头处点击，静止长按保持按下。直接：手指即指针，先点棋子再点目标格（或直接拖动）。
+options.touch_mode.touchpad = 触控板（箭头）
+options.touch_mode.direct = 直接（手指）
 
 # ---- Player profile (Options > Player) ---------------------------------------------------------
 player.name = 姓名
