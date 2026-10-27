@@ -1,3 +1,6 @@
+#  Development is on hold; I am working on my own version using the Godot engine.
+
+
 # Scacelith
 
 A photorealistic chess game played in first person, seated at a waxed wooden table in a sunlit
