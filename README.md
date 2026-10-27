@@ -1,4 +1,4 @@
-#  Development is on hold; I am working on my own version using the Godot engine.
+#  Development is on hold; I am working on my own chess game using the Godot engine and my own code. I'll keep you updated soon.
 
 
 # Scacelith
